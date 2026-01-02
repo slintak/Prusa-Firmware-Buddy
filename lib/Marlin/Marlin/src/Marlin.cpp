@@ -30,6 +30,9 @@
 
 #include "Marlin.h"
 
+#include "FreeRTOS.h"
+#include "heap.h"
+
 #include <option/has_phase_stepping.h>
 #if HAS_PHASE_STEPPING()
   #include "feature/phase_stepping/phase_stepping.hpp"
@@ -329,6 +332,31 @@ bool anyHeatherIsActive() {
   return active;
 }
 
+static size_t probe_largest_alloc(size_t low, size_t high, size_t alignment = 8) {
+  // Ensure bounds sane
+  if (high < low) return 0;
+
+  // Round down high to alignment
+  high = (high / alignment) * alignment;
+
+  size_t best = 0;
+  while (low <= high) {
+    size_t mid = low + (high - low) / 2;
+    mid = (mid / alignment) * alignment;
+
+    void *p = malloc_fallible(mid);
+    if (p) {
+      free(p);           // Use the same free() that matches malloc_fallible()
+      best = mid;
+      low = mid + alignment;
+    } else {
+      if (mid == 0) break;
+      high = mid - alignment;
+    }
+  }
+  return best;
+}
+
 /**
  * Manage several activities:
  *  - Check for Filament Runout
@@ -437,6 +465,49 @@ void manage_inactivity() {
       WRITE(FET_SAFETY_PIN, FET_SAFETY_INVERTED);
     }
   #endif
+  
+  // PoC: Heap telemetry over serial (with fragmentation)
+  static millis_t next_heap_report_ms = 0;
+  static millis_t next_frag_probe_ms = 0;
+
+  const millis_t now = millis();
+
+  if (ELAPSED(now, next_heap_report_ms)) {
+    next_heap_report_ms = now + 500;
+
+    static size_t min_heap = SIZE_MAX;
+    const size_t free_heap = xPortGetFreeHeapSize();
+    if (free_heap < min_heap) min_heap = free_heap;
+
+    SERIAL_ECHO_START();
+    SERIAL_ECHOPGM("[METRICS] heap_free=");
+    SERIAL_ECHO(free_heap);
+    SERIAL_ECHOPGM(" heap_min=");
+    SERIAL_ECHO(min_heap);
+
+    if (ELAPSED(now, next_frag_probe_ms)) {
+      next_frag_probe_ms = now + 60000; // 60s
+
+      // Probe between 256B and (free_heap - safety)
+      const size_t safety = 4096;
+      const size_t hi = (free_heap > safety) ? (free_heap - safety) : 0;
+
+      const size_t largest = (hi >= 256) ? probe_largest_alloc(256, hi, 8) : 0;
+
+      // Fragmentation proxy: how far largest block is from total free
+      const unsigned frag_pct = (free_heap > 0 && largest <= free_heap)
+        ? (unsigned)((100u * (free_heap - largest)) / free_heap)
+        : 0u;
+
+      SERIAL_ECHOPGM(" heap_largest_alloc=");
+      SERIAL_ECHO(largest);
+      SERIAL_ECHOPGM(" heap_frag~=");
+      SERIAL_ECHO(frag_pct);
+      SERIAL_ECHOPGM("%");
+    }
+
+    SERIAL_ECHOLN();
+  }
 }
 
 /**
