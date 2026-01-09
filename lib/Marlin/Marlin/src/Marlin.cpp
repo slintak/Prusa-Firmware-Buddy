@@ -508,6 +508,8 @@ void manage_inactivity() {
 
     SERIAL_ECHOLN();
   }
+
+  buddy::mqtt_poc::tick();
 }
 
 /**
