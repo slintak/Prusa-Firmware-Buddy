@@ -33,6 +33,8 @@
 #include "FreeRTOS.h"
 #include "heap.h"
 
+#include "lwip_mqtt_poc/lwip_mqtt_poc.h"
+
 #include <option/has_phase_stepping.h>
 #if HAS_PHASE_STEPPING()
   #include "feature/phase_stepping/phase_stepping.hpp"
@@ -508,6 +510,9 @@ void manage_inactivity() {
 
     SERIAL_ECHOLN();
   }
+
+  buddy::lwip_mqtt_poc::tick();
+
 }
 
 /**
