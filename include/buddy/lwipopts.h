@@ -21,6 +21,11 @@ extern "C" {
 #define LWIP_RAW             1
 #define LWIP_MQTT            1
 
+#define LWIP_ALTCP 1
+#define LWIP_ALTCP_TLS 1
+#define LWIP_ALTCP_TLS_MBEDTLS 1
+//#define LWIP_TCPIP_CORE_LOCKING 1
+
 #define MQTT_REQ_MAX_IN_FLIGHT  2
 #define MQTT_VAR_HEADER_BUFFER_LEN 128
 #define MQTT_OUTPUT_RINGBUF_SIZE 2048
@@ -115,7 +120,7 @@ extern "C" {
 #define LWIP_NETIF_HOSTNAME          1
 #define LWIP_HTTPD_SUPPORT_POST      0
 #define LWIP_COMPAT_SOCKETS          0
-#define LWIP_ALTCP                   0
+//#define LWIP_ALTCP                   0
 #define LWIP_HTTPD_DYNAMIC_FILE_READ 0
 #define LWIP_TIMERS                  1
 #define LWIP_SO_RCVTIMEO             1

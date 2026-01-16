@@ -3,6 +3,9 @@
 #include "Marlin.h"
 #include "netdev.h"
 
+
+#include "mqtt_ca_cert.h"
+
 #include <cstring>
 #include <cstdint>
 #include <cstring>
@@ -15,7 +18,12 @@ extern "C" {
 #include "lwip/tcpip.h"
 #include "lwip/ip_addr.h"
 #include "lwip/inet.h"
+#include "lwip/altcp_tls.h"
 }
+
+#if !(LWIP_ALTCP && LWIP_ALTCP_TLS)
+#error "LWIP_ALTCP_TLS not enabled in this TU"
+#endif
 
 namespace {
 
@@ -49,8 +57,11 @@ static mqtt_client_t *mqtt_client_new_static() {
 }
 
 // ===== Config =====
+static struct altcp_tls_config* g_tls = nullptr;
+
+
 static constexpr const char *BROKER_IP = "192.168.1.112";
-static constexpr uint16_t BROKER_PORT = 1883;
+static constexpr uint16_t BROKER_PORT = 8883;
 
 static constexpr const char *TOPIC = "mk4/poc";
 static constexpr const char *PAYLOAD = "hello world";
@@ -144,6 +155,15 @@ static void ensure_broker_addr_parsed() {
 static void tcpip_do_connect(void *arg) {
     (void)arg;
 
+    if (!g_tls) {
+      g_tls = altcp_tls_create_config_client(
+            (const u8_t*)MQTT_CA_CERT_PEM,
+            strlen(MQTT_CA_CERT_PEM)
+        );
+      if (!g_tls) { log_msg("tls_cfg_fail"); return; }
+      log_msg("tls_cfg_ok");
+    }
+
     ensure_broker_addr_parsed();
     if (!g_broker_addr_ok) {
         g_next_action_ms = millis() + RECONNECT_BACKOFF_MS;
@@ -168,6 +188,7 @@ static void tcpip_do_connect(void *arg) {
     // Prepare client info (MQTT 3.1.1)
     mqtt_connect_client_info_t ci;
     memset(&ci, 0, sizeof(ci));
+    ci.tls_config = g_tls;
     ci.client_id = "mk4poc";
     ci.keep_alive = 60;
 
