@@ -240,3 +240,5 @@ if(BOARD_IS_MASTER_BOARD)
 endif()
 
 add_subdirectory(utils)
+
+add_subdirectory(lwip_mqtt_poc)

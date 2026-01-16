@@ -19,6 +19,11 @@ extern "C" {
 #define LWIP_DNS_SECURE      7
 #define DNS_MAX_NAME_LENGTH  128
 #define LWIP_RAW             1
+#define LWIP_MQTT            1
+
+#define MQTT_REQ_MAX_IN_FLIGHT  2
+#define MQTT_VAR_HEADER_BUFFER_LEN 128
+#define MQTT_OUTPUT_RINGBUF_SIZE 2048
 
 #if MDNS()
     #define MDNS_MAX_STORED_PKTS 1
