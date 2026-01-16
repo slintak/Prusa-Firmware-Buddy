@@ -72,6 +72,8 @@ add_library(LwIP OBJECT
   src/netif/ppp/vj.c
   src/netif/slipif.c
   src/apps/mqtt/mqtt.c
+  src/apps/altcp_tls/altcp_tls_mbedtls.c
+  src/apps/altcp_tls/altcp_tls_mbedtls_mem.c
   system/OS/sys_arch.c
   )
 
@@ -88,4 +90,4 @@ target_include_directories(
          src/include/lwip/apps
   )
 
-target_link_libraries(LwIP PUBLIC LwIP_Config)
+target_link_libraries(LwIP PUBLIC LwIP_Config mbedTLS)
