@@ -71,6 +71,7 @@ add_library(LwIP OBJECT
   src/netif/ppp/utils.c
   src/netif/ppp/vj.c
   src/netif/slipif.c
+  src/apps/mqtt/mqtt.c
   system/OS/sys_arch.c
   )
 
@@ -84,6 +85,7 @@ target_include_directories(
          src/include/lwip/prot
          src/include/netif
          src/include/posix
+         src/include/lwip/apps
   )
 
 target_link_libraries(LwIP PUBLIC LwIP_Config)
