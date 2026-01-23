@@ -29,6 +29,7 @@
  */
 
 #include "Marlin.h"
+#include "mqttc_poc/mqttc_poc.h"
 
 #include "FreeRTOS.h"
 #include "heap.h"
@@ -508,6 +509,8 @@ void manage_inactivity() {
 
     SERIAL_ECHOLN();
   }
+
+  buddy::mqttc_poc::tick();
 }
 
 /**

@@ -240,3 +240,4 @@ if(BOARD_IS_MASTER_BOARD)
 endif()
 
 add_subdirectory(utils)
+add_subdirectory(mqttc_poc)
