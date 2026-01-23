@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/LiamBindle/MQTT-C.git
+	branch = v1.1.6
+	commit = f69ce1e7fd54f3b1834c9c9137ce0ec5d703cb4d
+	parent = 6020a682aac7f0b17afa294da3ed6c554a64b9f7
+	method = merge
+	cmdver = 0.4.9
