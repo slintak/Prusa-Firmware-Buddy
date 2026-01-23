@@ -207,9 +207,6 @@ set(lwiptftp_SRCS
 )
 
 # MQTT client files
-set(lwipmqtt_SRCS
-    ${LWIP_DIR}/src/apps/mqtt/mqtt.c
-)
 
 # ARM MBEDTLS related files of lwIP rep
 set(lwipmbedtls_SRCS
@@ -239,7 +236,6 @@ set(lwipallapps_SRCS
     ${lwipmdns_SRCS}
     ${lwipnetbios_SRCS}
     ${lwiptftp_SRCS}
-    ${lwipmqtt_SRCS}
     ${lwipmbedtls_SRCS}
 )
 

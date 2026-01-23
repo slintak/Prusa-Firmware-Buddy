@@ -184,8 +184,6 @@ NETBIOSNSFILES=$(LWIPDIR)/apps/netbiosns/netbiosns.c
 # TFTPFILES: TFTP server files
 TFTPFILES=$(LWIPDIR)/apps/tftp/tftp_server.c
 
-# MQTTFILES: MQTT client files
-MQTTFILES=$(LWIPDIR)/apps/mqtt/mqtt.c
 
 # MBEDTLS_FILES: MBEDTLS related files of lwIP rep
 MBEDTLS_FILES=$(LWIPDIR)/apps/altcp_tls/altcp_tls_mbedtls.c \
@@ -201,5 +199,4 @@ LWIPAPPFILES=$(SNMPFILES) \
 	$(MDNSFILES) \
 	$(NETBIOSNSFILES) \
 	$(TFTPFILES) \
-	$(MQTTFILES) \
 	$(MBEDTLS_FILES)
