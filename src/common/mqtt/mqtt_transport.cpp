@@ -53,7 +53,11 @@ int MqttTransport::send(const uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
+        if (err == http::Error::Timeout) {
+            return 0;
+        }
+        close();
+        return MQTT_ERROR_SOCKET_ERROR;
     }
     if (kind_ == Kind::Plain && plain_conn_) {
         auto result = plain_conn_->tx(data, size);
@@ -61,7 +65,11 @@ int MqttTransport::send(const uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
+        if (err == http::Error::Timeout) {
+            return 0;
+        }
+        close();
+        return MQTT_ERROR_SOCKET_ERROR;
     }
     return MQTT_ERROR_SOCKET_ERROR;
 }
@@ -73,7 +81,11 @@ int MqttTransport::recv(uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
+        if (err == http::Error::Timeout) {
+            return 0;
+        }
+        close();
+        return MQTT_ERROR_SOCKET_ERROR;
     }
     if (kind_ == Kind::Plain && plain_conn_) {
         auto result = plain_conn_->rx(data, size, false);
@@ -81,7 +93,11 @@ int MqttTransport::recv(uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
+        if (err == http::Error::Timeout) {
+            return 0;
+        }
+        close();
+        return MQTT_ERROR_SOCKET_ERROR;
     }
     return MQTT_ERROR_SOCKET_ERROR;
 }

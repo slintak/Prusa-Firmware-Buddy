@@ -263,7 +263,12 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         return Error::Proxy;
     }
 
-    while ((status = mbedtls_ssl_handshake(&ssl_context)) != 0) {
+    while (true) {
+        net_context.timeout_happened = false;
+        status = mbedtls_ssl_handshake(&ssl_context);
+        if (status == 0) {
+            break;
+        }
         if (status != MBEDTLS_ERR_SSL_WANT_READ && status != MBEDTLS_ERR_SSL_WANT_WRITE) {
             log_info(mqtt, "ssl handshake failed with: %d", status);
             return Error::Tls;
@@ -306,6 +311,7 @@ void tls::set_io_timeout_s(uint8_t timeout_s) {
 std::variant<size_t, Error> tls::tx(const uint8_t *send_buffer, size_t data_len) {
     size_t bytes_sent = 0;
 
+    net_context.timeout_happened = false;
     int status = mbedtls_ssl_write(&ssl_context, (const unsigned char *)send_buffer, data_len);
 
     if (status <= 0) {
@@ -327,6 +333,7 @@ std::variant<size_t, Error> tls::rx(uint8_t *read_buffer, size_t buffer_len, [[m
     assert(!nonblock);
     size_t bytes_received = 0;
 
+    net_context.timeout_happened = false;
     int status = mbedtls_ssl_read(&ssl_context, (unsigned char *)read_buffer, buffer_len);
 
     if (status <= 0) {
