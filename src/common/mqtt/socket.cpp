@@ -146,6 +146,15 @@ std::variant<size_t, http::Error> socket_con::tx(const uint8_t *send_buffer, siz
         if (e == EWOULDBLOCK || e == EAGAIN) {
             return Error::Timeout;
         } else {
+            if (e == ENOTCONN || e == ECONNRESET || e == EPIPE) {
+                log_error(mqtt_socket, "lwip send failed with: %d, errno: %d (closing)", status, e);
+                if (fd != -1) {
+                    lwip_close(fd);
+                    fd = -1;
+                }
+                connected = false;
+                return Error::Network;
+            }
             log_error(mqtt_socket, "lwip send failed with: %d, errno: %d", status, e);
             return Error::Network;
         }
@@ -177,6 +186,15 @@ std::variant<size_t, http::Error> socket_con::rx(uint8_t *read_buffer, size_t bu
         if (e == EWOULDBLOCK || e == EAGAIN) {
             return Error::Timeout;
         } else {
+            if (e == ENOTCONN || e == ECONNRESET) {
+                log_error(mqtt_socket, "lwip recv failed with: %d, errno: %d (closing)", status, e);
+                if (fd != -1) {
+                    lwip_close(fd);
+                    fd = -1;
+                }
+                connected = false;
+                return Error::Network;
+            }
             log_error(mqtt_socket, "lwip recv failed with: %d, errno: %d", status, e);
             return Error::Network;
         }

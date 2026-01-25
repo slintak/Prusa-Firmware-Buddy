@@ -19,8 +19,6 @@ constexpr uint32_t CONFIG_REFRESH_MS = 10000;
 constexpr uint32_t CONNECT_TIMEOUT_MS = 60000;
 constexpr uint16_t DEFAULT_PORT_PLAIN = 1883;
 constexpr uint16_t DEFAULT_PORT_TLS = 8883;
-constexpr uint32_t QUICK_RETRY_DELAY_MS = 1000;
-constexpr uint8_t QUICK_RETRY_MAX = 3;
 } // namespace
 
 Client::Client(buddy::mqtt::Client &mqtt_client)
@@ -62,7 +60,7 @@ void Client::step() {
         {
             const uint16_t port = cfg_.port != 0 ? cfg_.port : (cfg_.tls ? DEFAULT_PORT_TLS : DEFAULT_PORT_PLAIN);
             if (!mqtt_client_.connect(cfg_.host, port, cfg_.tls, cfg_.custom_cert)) {
-                enter_backoff(now, false);
+                enter_backoff(now);
                 return;
             }
         }
@@ -75,17 +73,16 @@ void Client::step() {
             state_ = State::Connected;
             next_action_ms_ = 0;
             backoff_.reset();
-            quick_retries_ = 0;
             return;
         }
         if (next_action_ms_ != 0 && ticks_diff(now, next_action_ms_) >= 0) {
-            enter_backoff(now, false);
+            enter_backoff(now);
         }
         return;
     case State::Connected:
         mqtt_client_.step();
         if (!mqtt_client_.is_connected()) {
-            enter_backoff(now, true);
+            enter_backoff(now);
         }
         return;
     case State::Backoff:
@@ -125,7 +122,6 @@ void Client::refresh_config(uint32_t now_ms) {
 
     mqtt_client_.disconnect();
     backoff_.reset();
-    quick_retries_ = 0;
     if (!cfg_.enabled || cfg_.host[0] == '\0') {
         state_ = State::Disabled;
         next_action_ms_ = 0;
@@ -135,15 +131,9 @@ void Client::refresh_config(uint32_t now_ms) {
     }
 }
 
-void Client::enter_backoff(uint32_t now_ms, bool fast_retry) {
+void Client::enter_backoff(uint32_t now_ms) {
     mqtt_client_.disconnect();
     state_ = State::Backoff;
-    if (fast_retry && quick_retries_ < QUICK_RETRY_MAX) {
-        ++quick_retries_;
-        next_action_ms_ = now_ms + QUICK_RETRY_DELAY_MS;
-        return;
-    }
-    quick_retries_ = 0;
     next_action_ms_ = now_ms + backoff_.fail();
 }
 

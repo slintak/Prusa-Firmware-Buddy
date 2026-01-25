@@ -25,7 +25,7 @@ private:
     void step();
     void sleep_idle(uint32_t ms);
     void refresh_config(uint32_t now_ms);
-    void enter_backoff(uint32_t now_ms, bool fast_retry);
+    void enter_backoff(uint32_t now_ms);
     bool network_ready();
 
     static uint32_t config_hash(const Config &cfg);
@@ -39,7 +39,6 @@ private:
     uint32_t next_action_ms_ = 0;
     bool last_net_ready_ = false;
     buddy::ExponentialBackoff<uint32_t, 100, 60000> backoff_;
-    uint8_t quick_retries_ = 0;
 };
 
 } // namespace connect2_client
