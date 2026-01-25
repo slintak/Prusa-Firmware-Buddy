@@ -1,6 +1,8 @@
 target_sources(
   firmware
-  PRIVATE mqtt_client.cpp
+  PRIVATE connection.cpp
+          socket.cpp
+          mqtt_client.cpp
           mqtt_transport.cpp
           mqtt_pal.cpp
           log_component.cpp

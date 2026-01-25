@@ -42,6 +42,7 @@ private:
     bool connect_inflight_ = false;
     bool initialized_ = false;
     uint32_t last_sync_ms_ = 0;
+    uint32_t last_ping_ms_ = 0;
     std::unique_ptr<Transport> owned_transport_;
     Transport *transport_ = nullptr;
     mqtt_client client_ = {};

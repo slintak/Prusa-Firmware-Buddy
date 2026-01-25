@@ -5,13 +5,14 @@
 namespace buddy::mqtt {
 
 namespace {
-constexpr uint8_t SOCKET_TIMEOUT_S = 60;
+constexpr uint8_t HANDSHAKE_TIMEOUT_S = 60;
+constexpr uint8_t IO_TIMEOUT_S = 5;
 } // namespace
 
 bool MqttTransport::open(const char *host, uint16_t port, bool tls, bool custom_cert) {
     close();
     if (tls) {
-        tls_conn_ = std::make_unique<buddy::mqtt::tls>(SOCKET_TIMEOUT_S, custom_cert);
+        tls_conn_ = std::make_unique<buddy::mqtt::tls>(HANDSHAKE_TIMEOUT_S, custom_cert);
         if (!tls_conn_) {
             return false;
         }
@@ -20,11 +21,12 @@ bool MqttTransport::open(const char *host, uint16_t port, bool tls, bool custom_
             tls_conn_.reset();
             return false;
         }
+        tls_conn_->set_io_timeout_s(IO_TIMEOUT_S);
         kind_ = Kind::Tls;
         return true;
     }
 
-    plain_conn_ = std::make_unique<http::socket_con>(SOCKET_TIMEOUT_S);
+    plain_conn_ = std::make_unique<buddy::mqtt::socket_con>(HANDSHAKE_TIMEOUT_S);
     if (!plain_conn_) {
         return false;
     }
@@ -33,6 +35,7 @@ bool MqttTransport::open(const char *host, uint16_t port, bool tls, bool custom_
         plain_conn_.reset();
         return false;
     }
+    plain_conn_->set_timeout_s(IO_TIMEOUT_S);
     kind_ = Kind::Plain;
     return true;
 }

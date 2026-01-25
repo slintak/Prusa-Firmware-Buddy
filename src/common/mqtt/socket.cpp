@@ -35,8 +35,9 @@
 #include <memory>
 
 using std::unique_ptr;
+using http::Error;
 
-LOG_COMPONENT_DEF(socket, logging::Severity::info);
+LOG_COMPONENT_DEF(mqtt_socket, logging::Severity::info);
 
 namespace {
 
@@ -49,33 +50,28 @@ public:
 
 } // namespace
 
-namespace http {
+namespace buddy::mqtt {
 
 socket_con::socket_con(uint8_t timeout_s)
     : Connection(timeout_s) {
     fd = -1;
     connected = false;
     if ((fd = lwip_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == -1) {
-        log_debug(socket, "%s", "socket creation failed\n");
+        log_debug(mqtt_socket, "%s", "socket creation failed\n");
     }
-    log_debug(socket, "socket created with fd: %d\n", fd);
+    log_debug(mqtt_socket, "socket created with fd: %d\n", fd);
 }
 
 socket_con::~socket_con() {
-    log_debug(socket, "socket destructor called: %d\n", fd);
+    log_debug(mqtt_socket, "socket destructor called: %d\n", fd);
     if (-1 != fd) {
-        log_debug(socket, "shutting down socket: %d\n", fd);
+        log_debug(mqtt_socket, "shutting down socket: %d\n", fd);
         lwip_close(fd);
     }
 }
 
-std::optional<Error> socket_con::connection(const char *host, uint16_t port) {
-
-    const struct timeval timeout = { get_timeout_s(), 0 };
-    if (lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1) {
-        return Error::SetSockOpt;
-    }
-    if (lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) == -1) {
+std::optional<http::Error> socket_con::connection(const char *host, uint16_t port) {
+    if (!set_timeout_s(get_timeout_s())) {
         return Error::SetSockOpt;
     }
 
@@ -94,7 +90,7 @@ std::optional<Error> socket_con::connection(const char *host, uint16_t port) {
     snprintf(port_as_str, str_len, "%hu", port);
 
     if (lwip_getaddrinfo(host, port_as_str, &hints, &cur) != 0) {
-        log_info(socket, "DNS resolution failed on host: %s", host);
+        log_info(mqtt_socket, "DNS resolution failed on host: %s", host);
         return Error::Dns;
     }
 
@@ -117,7 +113,22 @@ std::optional<Error> socket_con::connection(const char *host, uint16_t port) {
     }
 }
 
-std::variant<size_t, Error> socket_con::tx(const uint8_t *send_buffer, size_t data_len) {
+bool socket_con::set_timeout_s(uint8_t timeout_s) {
+    Connection::set_timeout_s(timeout_s);
+    if (fd == -1) {
+        return false;
+    }
+    const struct timeval timeout = { get_timeout_s(), 0 };
+    if (lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1) {
+        return false;
+    }
+    if (lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) == -1) {
+        return false;
+    }
+    return true;
+}
+
+std::variant<size_t, http::Error> socket_con::tx(const uint8_t *send_buffer, size_t data_len) {
     if (!connected) {
         return Error::InternalError;
     }
@@ -129,25 +140,25 @@ std::variant<size_t, Error> socket_con::tx(const uint8_t *send_buffer, size_t da
     if (status < 0) {
         // Store errno, as the log_error may replace it.
         int e = errno;
-        log_error(socket, "lwip send failed with: %d, errno: %d", status, e);
 #pragma GCC diagnostic push
         // On some systems, EWOULDBLOCK and EAGAIN have the same value (and produce a warning), on some others they are different and need checking for both.
 #pragma GCC diagnostic ignored "-Wlogical-op"
         if (e == EWOULDBLOCK || e == EAGAIN) {
             return Error::Timeout;
         } else {
+            log_error(mqtt_socket, "lwip send failed with: %d, errno: %d", status, e);
             return Error::Network;
         }
 #pragma GCC diagnostic pop
     }
 
     bytes_sent = (size_t)status;
-    log_debug(socket, "-- written %d bytes --\n", bytes_sent);
-    log_debug(socket, "%s", send_buffer);
+    log_debug(mqtt_socket, "-- written %d bytes --\n", bytes_sent);
+    log_debug(mqtt_socket, "%s", send_buffer);
     return bytes_sent;
 }
 
-std::variant<size_t, Error> socket_con::rx(uint8_t *read_buffer, size_t buffer_len, bool nonblock) {
+std::variant<size_t, http::Error> socket_con::rx(uint8_t *read_buffer, size_t buffer_len, bool nonblock) {
     if (!connected) {
         return Error::InternalError;
     }
@@ -160,20 +171,20 @@ std::variant<size_t, Error> socket_con::rx(uint8_t *read_buffer, size_t buffer_l
     if (status < 0) {
         // Store errno, as the log_error may replace it.
         int e = errno;
-        log_error(socket, "lwip recv failed with: %d, errno: %d", status, e);
 #pragma GCC diagnostic push
         // On some systems, EWOULDBLOCK and EAGAIN have the same value (and produce a warning), on some others they are different and need checking for both.
 #pragma GCC diagnostic ignored "-Wlogical-op"
         if (e == EWOULDBLOCK || e == EAGAIN) {
             return Error::Timeout;
         } else {
+            log_error(mqtt_socket, "lwip recv failed with: %d, errno: %d", status, e);
             return Error::Network;
         }
 #pragma GCC diagnostic pop
     }
 
     bytes_received = (size_t)status;
-    log_debug(socket, "read %zu bytes\n", bytes_received);
+    log_debug(mqtt_socket, "read %zu bytes\n", bytes_received);
     return bytes_received;
 }
 
@@ -188,4 +199,4 @@ bool socket_con::poll_readable(uint32_t timeout) {
     }
 }
 
-} // namespace http
+} // namespace buddy::mqtt

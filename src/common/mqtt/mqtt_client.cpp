@@ -2,6 +2,9 @@
 #include "mqtt_transport.hpp"
 
 #include <common/timing.h>
+#include <logging/log.hpp>
+
+LOG_COMPONENT_REF(mqtt);
 
 namespace buddy::mqtt {
 
@@ -46,6 +49,7 @@ bool Client::connect(const char *host, uint16_t port, bool tls, bool custom_cert
         mqtt_connect(&client_, client_id, nullptr, nullptr, 0, nullptr, nullptr, connect_flags, 60);
 
     if (err != MQTT_OK || client_.error != MQTT_OK) {
+        log_info(mqtt, "mqtt_connect failed: %s (%d)", mqtt_error_str(client_.error), static_cast<int>(client_.error));
         transport_->close();
         return false;
     }
@@ -54,6 +58,7 @@ bool Client::connect(const char *host, uint16_t port, bool tls, bool custom_cert
     connect_inflight_ = true;
     connected_ = false;
     last_sync_ms_ = 0;
+    last_ping_ms_ = ticks_ms();
     return true;
 }
 
@@ -64,6 +69,7 @@ void Client::disconnect() {
     connected_ = false;
     connect_inflight_ = false;
     initialized_ = false;
+    last_ping_ms_ = 0;
 }
 
 void Client::step() {
@@ -81,6 +87,7 @@ void Client::step() {
 
     const enum MQTTErrors err = mqtt_sync(&client_);
     if (err != MQTT_OK) {
+        log_info(mqtt, "mqtt_sync failed: %s (%d)", mqtt_error_str(client_.error), static_cast<int>(client_.error));
         disconnect();
         return;
     }
@@ -90,6 +97,23 @@ void Client::step() {
         if (msg == nullptr) {
             connect_inflight_ = false;
             connected_ = true;
+            last_ping_ms_ = now;
+            log_info(mqtt, "mqtt connected");
+        }
+    }
+
+    if (connected_) {
+        const uint32_t keep_alive_s = client_.keep_alive;
+        const uint32_t ping_interval_ms = keep_alive_s > 1 ? (keep_alive_s * 1000U) / 2U : 1000U;
+        if (last_ping_ms_ != 0 && ticks_diff(now, last_ping_ms_) >= static_cast<int32_t>(ping_interval_ms)) {
+            if (mqtt_mq_find(&client_.mq, MQTT_CONTROL_PINGREQ, nullptr) == nullptr) {
+                const enum MQTTErrors ping_err = mqtt_ping(&client_);
+                if (ping_err != MQTT_OK) {
+                    log_info(mqtt, "mqtt_ping failed: %s (%d)", mqtt_error_str(client_.error), static_cast<int>(client_.error));
+                } else {
+                    last_ping_ms_ = now;
+                }
+            }
         }
     }
 }

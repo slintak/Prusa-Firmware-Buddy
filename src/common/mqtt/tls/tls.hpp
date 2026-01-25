@@ -1,6 +1,6 @@
 #pragma once
 
-#include <http/connection.hpp>
+#include <common/mqtt/connection.hpp>
 #include <http/connect_error.h>
 
 #include <mbedtls/net.h>
@@ -15,7 +15,7 @@
 
 namespace buddy::mqtt {
 
-class tls final : public http::Connection {
+class tls final : public buddy::mqtt::Connection {
 
 private:
     mbedtls_ssl_config ssl_config;
@@ -41,6 +41,7 @@ public:
      * In case no proxy, pass the same pointers / ports there.
      */
     std::optional<http::Error> connection(const char *connection_host, uint16_t connection_port, const char *destination_host, uint16_t destination_port);
+    void set_io_timeout_s(uint8_t timeout_s);
     virtual std::variant<size_t, http::Error> tx(const uint8_t *buffer, size_t data_len) override;
     virtual std::variant<size_t, http::Error> rx(uint8_t *buffer, size_t buffer_len, bool nonblock) override;
     virtual bool poll_readable(uint32_t timeout) override;

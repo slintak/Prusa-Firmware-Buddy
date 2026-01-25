@@ -9,7 +9,6 @@
 #include <unique_file_ptr.hpp>
 #include <common/heap.h>
 #include <common/conserve_cpu.hpp>
-#include <common/http/proxy.hpp>
 
 #include <mbedtls/sha256.h>
 #include <mbedtls/x509_crt.h>
@@ -108,7 +107,7 @@ void log_verify_flags(uint32_t flags) {
 namespace buddy::mqtt {
 
 tls::tls(uint8_t timeout_s, bool custom_cert)
-    : http::Connection(timeout_s)
+    : Connection(timeout_s)
     , net_context(timeout_s)
     , custom_cert(custom_cert) {
     mbedtls_net_init(&net_context);
@@ -260,11 +259,8 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
 
     // Really a pointer compare, not strcmp.
     if (destination_host != connection_host || destination_port != connection_port) {
-        // We are using a proxy to do the connection. Ask it to tunnel it through before initiating the encryption.
-        const auto err = http::proxy_connect(net_context.plain_conn, destination_host, destination_port);
-        if (err.has_value()) {
-            return err.value();
-        }
+        log_info(mqtt, "proxy connect not supported");
+        return Error::Proxy;
     }
 
     while ((status = mbedtls_ssl_handshake(&ssl_context)) != 0) {
@@ -301,6 +297,10 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
     log_debug(mqtt, "SSL done");
 
     return std::nullopt;
+}
+
+void tls::set_io_timeout_s(uint8_t timeout_s) {
+    net_context.plain_conn.set_timeout_s(timeout_s);
 }
 
 std::variant<size_t, Error> tls::tx(const uint8_t *send_buffer, size_t data_len) {
