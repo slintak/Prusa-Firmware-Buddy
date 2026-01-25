@@ -194,10 +194,21 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
             return Error::InternalError;
         }
 
+        size_t read = fread(der_buffer.get(), 1, fsize, cert.get());
+        if (read != static_cast<size_t>(fsize) || ferror(cert.get())) {
+            log_info(mqtt, "custom_cert read failed: read=%u expected=%u", static_cast<unsigned>(read),
+                static_cast<unsigned>(fsize));
+            return Error::InternalError;
+        }
+
         log_cert_fingerprint("custom_ca", static_cast<const uint8_t *>(der_buffer.get()), fsize);
-        if (mbedtls_x509_crt_parse_der_nocopy(&ctxs.x509_certificate, static_cast<const uint8_t *>(der_buffer.get()), fsize) != 0) {
+        status = mbedtls_x509_crt_parse_der_nocopy(
+            &ctxs.x509_certificate,
+            static_cast<const uint8_t *>(der_buffer.get()),
+            fsize);
+        if (status != 0) {
             // Wrong file content
-            log_info(mqtt, "custom_cert parse failed");
+            log_info(mqtt, "custom_cert parse failed: %d (0x%x)", status, static_cast<unsigned>(-status));
             return Error::Tls;
         }
     } else {
