@@ -3,6 +3,7 @@
 
 #include <common/timing.h>
 #include <logging/log.hpp>
+#include <cstring>
 
 LOG_COMPONENT_REF(mqtt);
 
@@ -26,7 +27,9 @@ void Client::set_transport(Transport *transport) {
     owned_transport_.reset();
 }
 
-bool Client::connect(const char *host, uint16_t port, bool tls, bool custom_cert) {
+bool Client::connect(const char *host, uint16_t port, bool tls, bool custom_cert,
+    const char *will_topic, const char *will_payload, size_t will_payload_len,
+    uint8_t will_qos, bool will_retain) {
     cfg_.host = host;
     cfg_.port = port;
     cfg_.tls = tls;
@@ -45,8 +48,29 @@ bool Client::connect(const char *host, uint16_t port, bool tls, bool custom_cert
 
     const char *client_id = "connect2";
     uint8_t connect_flags = MQTT_CONNECT_CLEAN_SESSION;
+    const bool have_will = will_topic != nullptr && will_payload != nullptr;
+    if (have_will) {
+        switch (will_qos) {
+        case 1:
+            connect_flags |= MQTT_CONNECT_WILL_QOS_1;
+            break;
+        case 2:
+            connect_flags |= MQTT_CONNECT_WILL_QOS_2;
+            break;
+        default:
+            connect_flags |= MQTT_CONNECT_WILL_QOS_0;
+            break;
+        }
+        if (will_retain) {
+            connect_flags |= MQTT_CONNECT_WILL_RETAIN;
+        }
+    }
     const enum MQTTErrors err =
-        mqtt_connect(&client_, client_id, nullptr, nullptr, 0, nullptr, nullptr, connect_flags, 60);
+        mqtt_connect(&client_, client_id,
+            have_will ? will_topic : nullptr,
+            have_will ? will_payload : nullptr,
+            have_will ? will_payload_len : 0,
+            nullptr, nullptr, connect_flags, 60);
 
     if (err != MQTT_OK || client_.error != MQTT_OK) {
         log_info(mqtt, "mqtt_connect failed: %s (%d)", mqtt_error_str(client_.error), static_cast<int>(client_.error));
@@ -120,6 +144,14 @@ void Client::step() {
 
 bool Client::is_connected() const {
     return connected_;
+}
+
+bool Client::publish(const char *topic, const char *payload, uint8_t publish_flags) {
+    if (!initialized_ || !connected_ || connect_inflight_) {
+        return false;
+    }
+    const enum MQTTErrors err = mqtt_publish(&client_, topic, payload, strlen(payload), publish_flags);
+    return err == MQTT_OK;
 }
 
 } // namespace buddy::mqtt

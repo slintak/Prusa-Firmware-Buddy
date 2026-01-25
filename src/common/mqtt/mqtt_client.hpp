@@ -31,10 +31,13 @@ public:
     Client();
     void set_config(const Config &cfg);
     void set_transport(Transport *transport);
-    bool connect(const char *host, uint16_t port, bool tls, bool custom_cert);
+    bool connect(const char *host, uint16_t port, bool tls, bool custom_cert,
+        const char *will_topic = nullptr, const char *will_payload = nullptr, size_t will_payload_len = 0,
+        uint8_t will_qos = 0, bool will_retain = false);
     void disconnect();
     void step();
     bool is_connected() const;
+    bool publish(const char *topic, const char *payload, uint8_t publish_flags);
 
 private:
     Config cfg_;
