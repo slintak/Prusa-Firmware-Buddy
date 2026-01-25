@@ -6,8 +6,8 @@
 namespace connect2_client {
 
 void run() {
-    buddy::mqtt::Client mqtt_client;
-    Client client(mqtt_client);
+    static buddy::mqtt::Client mqtt_client;
+    static Client client(mqtt_client);
     client.run();
 }
 
