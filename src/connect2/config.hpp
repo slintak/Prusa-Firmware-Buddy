@@ -15,5 +15,6 @@ struct Config {
 };
 
 Config load_config();
+bool load_cfg_from_ini();
 
 } // namespace connect2_client
