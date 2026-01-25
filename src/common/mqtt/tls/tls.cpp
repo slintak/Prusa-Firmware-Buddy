@@ -3,12 +3,16 @@
 #include <string.h>
 #include <stdbool.h>
 #include <memory>
+#include <cstdio>
 
 #include <logging/log.hpp>
 #include <unique_file_ptr.hpp>
 #include <common/heap.h>
 #include <common/conserve_cpu.hpp>
 #include <common/http/proxy.hpp>
+
+#include <mbedtls/sha256.h>
+#include <mbedtls/x509_crt.h>
 
 #include <lwip/mem.h>
 
@@ -60,6 +64,44 @@ struct InitContexts {
         return !!entropy_context;
     }
 };
+
+void bytes_to_hex(const uint8_t *data, size_t size, char *out, size_t out_len) {
+    static constexpr char kHex[] = "0123456789abcdef";
+    if (out_len == 0) {
+        return;
+    }
+    size_t i = 0;
+    for (; i < size && (i * 2 + 1) < out_len; ++i) {
+        out[i * 2] = kHex[(data[i] >> 4) & 0x0f];
+        out[i * 2 + 1] = kHex[data[i] & 0x0f];
+    }
+    if (i * 2 < out_len) {
+        out[i * 2] = '\0';
+    } else {
+        out[out_len - 1] = '\0';
+    }
+}
+
+void log_cert_fingerprint(const char *label, const uint8_t *data, size_t size) {
+    uint8_t digest[32] = {};
+    if (mbedtls_sha256_ret(data, size, digest, 0) != 0) {
+        log_info(mqtt, "%s sha256=<error>", label);
+        return;
+    }
+    char hex[65] = {};
+    bytes_to_hex(digest, sizeof(digest), hex, sizeof(hex));
+    log_info(mqtt, "%s sha256=%s size=%u", label, hex, static_cast<unsigned>(size));
+}
+
+void log_verify_flags(uint32_t flags) {
+    if (flags == 0) {
+        log_info(mqtt, "tls_verify_flags=0x0");
+        return;
+    }
+    char info[256] = {};
+    mbedtls_x509_crt_verify_info(info, sizeof(info), "", flags);
+    log_info(mqtt, "tls_verify_flags=0x%08x (%s)", static_cast<unsigned>(flags), info);
+}
 
 } // namespace
 
@@ -127,9 +169,12 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         // code size).
         //
         // TODO: Unify the path somewhere
-        unique_file_ptr cert(fopen("/internal/connect/connect.der", "rb"));
+        const char *cert_path = "/internal/connect/connect.der";
+        log_info(mqtt, "custom_cert=true path=%s", cert_path);
+        unique_file_ptr cert(fopen(cert_path, "rb"));
         if (!cert) {
             // Missing cert
+            log_info(mqtt, "custom_cert missing");
             return Error::Tls;
         }
 
@@ -149,15 +194,22 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
             return Error::InternalError;
         }
 
+        log_cert_fingerprint("custom_ca", static_cast<const uint8_t *>(der_buffer.get()), fsize);
         if (mbedtls_x509_crt_parse_der_nocopy(&ctxs.x509_certificate, static_cast<const uint8_t *>(der_buffer.get()), fsize) != 0) {
             // Wrong file content
+            log_info(mqtt, "custom_cert parse failed");
             return Error::Tls;
         }
     } else {
+        size_t idx = 0;
         for (const auto &cert : certificates) {
+            char label[24] = {};
+            snprintf(label, sizeof(label), "builtin_ca[%u]", static_cast<unsigned>(idx));
+            log_cert_fingerprint(label, cert.data(), cert.size());
             if ((status = mbedtls_x509_crt_parse_der_nocopy(&ctxs.x509_certificate, cert.data(), cert.size())) != 0) {
                 return Error::InternalError;
             }
+            ++idx;
         }
     }
     log_debug(mqtt, "Loaded certs");
@@ -222,7 +274,15 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         }
     }
 
-    if ((status = mbedtls_ssl_get_verify_result(&ssl_context)) != 0) {
+    if (const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&ssl_context); peer != nullptr) {
+        log_cert_fingerprint("server_cert", peer->raw.p, peer->raw.len);
+    } else {
+        log_info(mqtt, "server_cert missing");
+    }
+
+    const uint32_t verify_flags = mbedtls_ssl_get_verify_result(&ssl_context);
+    log_verify_flags(verify_flags);
+    if (verify_flags != 0) {
         log_info(mqtt, "SSL error");
         return Error::Tls;
     }

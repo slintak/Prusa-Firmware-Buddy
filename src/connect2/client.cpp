@@ -97,6 +97,13 @@ void Client::refresh_config(uint32_t now_ms) {
     }
     last_cfg_hash_ = cfg_hash;
 
+    log_info(connect2, "cfg enabled=%d host=%s port=%u tls=%d custom_cert=%d",
+        cfg_.enabled,
+        cfg_.host,
+        static_cast<unsigned>(cfg_.port),
+        cfg_.tls,
+        cfg_.custom_cert);
+
     mqtt_client_.disconnect();
     if (!cfg_.enabled || cfg_.host[0] == '\0') {
         state_ = State::Disabled;
