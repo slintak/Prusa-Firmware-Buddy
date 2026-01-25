@@ -3,6 +3,7 @@
 #include <cmsis_os.h>
 #include <common/timing.h>
 #include <cstring>
+#include <common/crc32.h>
 
 #include <logging/log.hpp>
 
@@ -12,7 +13,7 @@ namespace connect2_client {
 
 namespace {
 constexpr uint32_t IDLE_DELAY_MS = 50;
-constexpr uint32_t CONFIG_REFRESH_MS = 1000;
+constexpr uint32_t CONFIG_REFRESH_MS = 10000;
 constexpr uint32_t RECONNECT_BACKOFF_MS = 5000;
 constexpr uint32_t CONNECT_TIMEOUT_MS = 5000;
 constexpr uint16_t DEFAULT_PORT_PLAIN = 1883;
@@ -79,16 +80,20 @@ void Client::sleep_idle(uint32_t ms) {
 }
 
 void Client::refresh_config(uint32_t now_ms) {
+    if (!is_idle_state(state_)) {
+        return;
+    }
     if (next_cfg_check_ms_ != 0 && ticks_diff(now_ms, next_cfg_check_ms_) < 0) {
         return;
     }
     next_cfg_check_ms_ = now_ms + CONFIG_REFRESH_MS;
 
     cfg_ = load_config();
-    if (config_equal(cfg_, last_cfg_)) {
+    const uint32_t cfg_hash = config_hash(cfg_);
+    if (cfg_hash == last_cfg_hash_) {
         return;
     }
-    last_cfg_ = cfg_;
+    last_cfg_hash_ = cfg_hash;
 
     mqtt_client_.disconnect();
     if (!cfg_.enabled || cfg_.host[0] == '\0') {
@@ -106,9 +111,18 @@ void Client::enter_backoff(uint32_t now_ms) {
     next_action_ms_ = now_ms + RECONNECT_BACKOFF_MS;
 }
 
-bool Client::config_equal(const Config &a, const Config &b) {
-    return a.enabled == b.enabled && a.tls == b.tls && a.custom_cert == b.custom_cert && a.port == b.port &&
-        strncmp(a.host, b.host, sizeof(a.host)) == 0;
+uint32_t Client::config_hash(const Config &cfg) {
+    uint32_t crc = 0;
+    crc = crc32_calc_ex(crc, reinterpret_cast<const uint8_t *>(cfg.host), strlen(cfg.host));
+    crc = crc32_calc_ex(crc, reinterpret_cast<const uint8_t *>(&cfg.port), sizeof(cfg.port));
+    crc = crc32_calc_ex(crc, reinterpret_cast<const uint8_t *>(&cfg.tls), sizeof(cfg.tls));
+    crc = crc32_calc_ex(crc, reinterpret_cast<const uint8_t *>(&cfg.custom_cert), sizeof(cfg.custom_cert));
+    crc = crc32_calc_ex(crc, reinterpret_cast<const uint8_t *>(&cfg.enabled), sizeof(cfg.enabled));
+    return crc;
+}
+
+bool Client::is_idle_state(State state) {
+    return state == State::Disabled || state == State::Disconnected || state == State::Backoff;
 }
 
 } // namespace connect2_client
