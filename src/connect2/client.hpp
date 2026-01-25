@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include <common/mqtt/mqtt_client.hpp>
+#include <common/utils/exponential_backoff.hpp>
 #include "config.hpp"
 
 namespace connect2_client {
@@ -25,6 +26,7 @@ private:
     void sleep_idle(uint32_t ms);
     void refresh_config(uint32_t now_ms);
     void enter_backoff(uint32_t now_ms);
+    bool network_ready();
 
     static uint32_t config_hash(const Config &cfg);
     static bool is_idle_state(State state);
@@ -35,6 +37,8 @@ private:
     State state_ = State::Disabled;
     uint32_t next_cfg_check_ms_ = 0;
     uint32_t next_action_ms_ = 0;
+    bool last_net_ready_ = false;
+    buddy::ExponentialBackoff<uint32_t, 100, 60000> backoff_;
 };
 
 } // namespace connect2_client

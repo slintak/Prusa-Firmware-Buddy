@@ -5,7 +5,7 @@
 namespace buddy::mqtt {
 
 namespace {
-constexpr uint8_t SOCKET_TIMEOUT_S = 1;
+constexpr uint8_t SOCKET_TIMEOUT_S = 60;
 } // namespace
 
 bool MqttTransport::open(const char *host, uint16_t port, bool tls, bool custom_cert) {

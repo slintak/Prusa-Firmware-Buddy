@@ -4,6 +4,8 @@
 #include <common/timing.h>
 #include <cstring>
 #include <common/crc32.h>
+#include <netdev.h>
+#include <netif_settings.h>
 
 #include <logging/log.hpp>
 
@@ -14,8 +16,7 @@ namespace connect2_client {
 namespace {
 constexpr uint32_t IDLE_DELAY_MS = 50;
 constexpr uint32_t CONFIG_REFRESH_MS = 10000;
-constexpr uint32_t RECONNECT_BACKOFF_MS = 5000;
-constexpr uint32_t CONNECT_TIMEOUT_MS = 5000;
+constexpr uint32_t CONNECT_TIMEOUT_MS = 60000;
 constexpr uint16_t DEFAULT_PORT_PLAIN = 1883;
 constexpr uint16_t DEFAULT_PORT_TLS = 8883;
 } // namespace
@@ -34,6 +35,20 @@ void Client::run() {
 void Client::step() {
     const uint32_t now = ticks_ms();
     refresh_config(now);
+
+    const bool net_ready = network_ready();
+    if (net_ready != last_net_ready_) {
+        log_info(connect2, "network %s", net_ready ? "ready" : "down");
+        last_net_ready_ = net_ready;
+    }
+    if (!net_ready) {
+        if (state_ != State::Disabled) {
+            mqtt_client_.disconnect();
+            state_ = State::Disconnected;
+            next_action_ms_ = 0;
+        }
+        return;
+    }
 
     switch (state_) {
     case State::Disabled:
@@ -57,6 +72,7 @@ void Client::step() {
         if (mqtt_client_.is_connected()) {
             state_ = State::Connected;
             next_action_ms_ = 0;
+            backoff_.reset();
             return;
         }
         if (next_action_ms_ != 0 && ticks_diff(now, next_action_ms_) >= 0) {
@@ -105,6 +121,7 @@ void Client::refresh_config(uint32_t now_ms) {
         cfg_.custom_cert);
 
     mqtt_client_.disconnect();
+    backoff_.reset();
     if (!cfg_.enabled || cfg_.host[0] == '\0') {
         state_ = State::Disabled;
         next_action_ms_ = 0;
@@ -117,7 +134,7 @@ void Client::refresh_config(uint32_t now_ms) {
 void Client::enter_backoff(uint32_t now_ms) {
     mqtt_client_.disconnect();
     state_ = State::Backoff;
-    next_action_ms_ = now_ms + RECONNECT_BACKOFF_MS;
+    next_action_ms_ = now_ms + backoff_.fail();
 }
 
 uint32_t Client::config_hash(const Config &cfg) {
@@ -132,6 +149,18 @@ uint32_t Client::config_hash(const Config &cfg) {
 
 bool Client::is_idle_state(State state) {
     return state == State::Disabled || state == State::Disconnected || state == State::Backoff;
+}
+
+bool Client::network_ready() {
+    auto iface_ready = [](uint32_t id) {
+        if (netdev_get_status(id) != NETDEV_NETIF_UP) {
+            return false;
+        }
+        lan_t addrs {};
+        netdev_get_ipv4_addresses(id, &addrs);
+        return addrs.addr_ip4.addr != 0;
+    };
+    return iface_ready(NETDEV_ETH_ID) || iface_ready(NETDEV_ESP_ID);
 }
 
 } // namespace connect2_client
