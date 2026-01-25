@@ -174,26 +174,15 @@ list(REMOVE_ITEM MCU_VALID_OPTS "<default>")
 define_enum_option(NAME MCU VALUE ${MCU} ALL_VALUES ${MCU_VALID_OPTS})
 
 # Set connect status/availability
-if(${BOARD} STREQUAL "DWARF"
-   OR ${BOARD} STREQUAL "MODULARBED"
-   OR ${BOARD} STREQUAL "XBUDDY_EXTENSION"
-   OR ${BOARD} STREQUAL "XL_DEV_KIT_XLB"
-   )
-  set(CONNECT
-      "NO"
-      CACHE BOOL "Enable Connect client"
-      )
-else()
-  set(CONNECT
-      "YES"
-      CACHE BOOL "Enable Connect client"
-      )
-endif()
+set(CONNECT
+    "NO"
+    CACHE BOOL "Enable Connect client"
+    )
 define_boolean_option(BUDDY_ENABLE_CONNECT ${CONNECT})
 
 # Set connect2 status/availability (mutually exclusive with Connect)
 set(CONNECT2
-    "NO"
+    "YES"
     CACHE BOOL "Enable Connect2 (MQTT) client"
     )
 define_boolean_option(BUDDY_ENABLE_CONNECT2 ${CONNECT2})
