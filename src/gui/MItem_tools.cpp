@@ -28,11 +28,12 @@
 #include <bootloader/bootloader.hpp>
 #include "config_features.h"
 #include <config_store/store_instance.hpp>
-#include "connect/marlin_printer.hpp"
 #include <crash_dump/dump.hpp>
 #include <feature/prusa/e-stall_detector.h>
 #include <option/bootloader.h>
 #include <option/filament_sensor.h>
+#include <option/buddy_enable_connect.h>
+#include <option/buddy_enable_connect2.h>
 #include <option/has_phase_stepping_toggle.h>
 #include <option/has_side_leds.h>
 #include <option/has_coldpull.h>
@@ -66,6 +67,10 @@
 
 #if BUDDY_ENABLE_CONNECT()
     #include <connect/marlin_printer.hpp>
+#endif
+
+#if BUDDY_ENABLE_CONNECT2()
+    #include <connect2/config.hpp>
 #endif
 
 #include <option/has_xbuddy_extension.h>
@@ -715,6 +720,7 @@ void MI_FILAMENT_CHANGE_PREHEAT_ALL::OnChange(size_t old_index) {
 }
 
 MI_SET_READY::MI_SET_READY()
+#if BUDDY_ENABLE_CONNECT()
     : IWindowMenuItem(_(label), &img::set_ready_16x16, connect_client::MarlinPrinter::is_printer_ready() ? is_enabled_t::no : is_enabled_t::yes, is_hidden_t::no) {
 }
 
@@ -723,6 +729,13 @@ void MI_SET_READY::click([[maybe_unused]] IWindowMenu &window_menu) {
         set_enabled(false);
     }
 }
+#else
+    : IWindowMenuItem(_(label), &img::set_ready_16x16, is_enabled_t::no, is_hidden_t::yes) {
+}
+
+void MI_SET_READY::click([[maybe_unused]] IWindowMenu &window_menu) {
+}
+#endif
 
 #if HAS_PHASE_STEPPING_TOGGLE()
 MI_PHASE_STEPPING_TOGGLE::MI_PHASE_STEPPING_TOGGLE()
@@ -825,6 +838,10 @@ void MI_LOAD_SETTINGS::click(IWindowMenu & /*window_menu*/) {
 
 #if BUDDY_ENABLE_CONNECT()
     build_message(msg_builder, _("Connect"), connect_client::MarlinPrinter::load_cfg_from_ini());
+#endif
+
+#if BUDDY_ENABLE_CONNECT2()
+    build_message(msg_builder, _("Connect"), connect2_client::load_cfg_from_ini());
 #endif
 
     MsgBoxInfo(string_view_utf8::MakeRAM(msg.data()), Responses_Ok);
