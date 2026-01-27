@@ -53,6 +53,7 @@
 #include <option/has_burst_stepping.h>
 #include <option/has_xbuddy_extension.h>
 #include <option/buddy_enable_wui.h>
+#include <option/buddy_enable_connect2.h>
 #include <option/has_touch.h>
 #include <option/has_nfc.h>
 #include <option/has_i2c_expander.h>
@@ -74,6 +75,9 @@
 
 #if BUDDY_ENABLE_CONNECT()
     #include "connect/run.hpp"
+#endif
+#if BUDDY_ENABLE_CONNECT2()
+    #include "connect2/run.hpp"
 #endif
 #if HAS_PUPPIES()
     #include "puppies/PuppyBus.hpp"
@@ -126,7 +130,12 @@ LOG_COMPONENT_REF(Buddy);
 
 osThreadId defaultTaskHandle;
 osThreadId displayTaskHandle;
+#if BUDDY_ENABLE_CONNECT()
 osThreadId connectTaskHandle;
+#endif
+#if BUDDY_ENABLE_CONNECT2()
+osThreadId connect2TaskHandle;
+#endif
 
 #if HAS_GUI()
 static constexpr size_t displayTask_stacksz = 1024 + 512; // in words
@@ -143,8 +152,13 @@ int HAL_SPI_Initialized = 0;
 void SystemClock_Config(void);
 void StartDefaultTask(void const *argument);
 void StartDisplayTask(void const *argument);
+#if BUDDY_ENABLE_CONNECT()
 void StartConnectTask(void const *argument);
 void StartConnectTaskError(void const *argument); // Version for redscreen
+#endif
+#if BUDDY_ENABLE_CONNECT2()
+void StartConnect2Task(void const *argument);
+#endif
 void StartESPTask(void const *argument);
 void iwdg_warning_cb(void);
 
@@ -280,6 +294,9 @@ extern "C" void main_cpp(void) {
 #if BUDDY_ENABLE_CONNECT()
     // On a place shared for both code branches, so we have just one connectTask buffer.
     osThreadCCMDef(connectTask, want_error_screen ? StartConnectTaskError : StartConnectTask, TASK_PRIORITY_CONNECT, 0, 2336);
+#endif
+#if BUDDY_ENABLE_CONNECT2()
+    osThreadCCMDef(connect2Task, StartConnect2Task, TASK_PRIORITY_CONNECT, 0, 2336);
 #endif
 
 #if HAS_NFC()
@@ -539,6 +556,12 @@ extern "C" void main_cpp(void) {
     }
 #endif
 
+#if BUDDY_ENABLE_CONNECT2()
+    if (!running_in_tester_mode()) {
+        connect2TaskHandle = osThreadCreate(osThread(connect2Task), NULL);
+    }
+#endif
+
     // There is no point in initializing syslog before networking is up
     TaskDeps::wait(TaskDeps::Tasks::syslog);
     logging::syslog_reconfigure();
@@ -621,6 +644,12 @@ void StartConnectTask([[maybe_unused]] void const *argument) {
 
 void StartConnectTaskError([[maybe_unused]] void const *argument) {
     connect_client::run_error();
+}
+#endif
+
+#if BUDDY_ENABLE_CONNECT2()
+void StartConnect2Task([[maybe_unused]] void const *argument) {
+    connect2_client::run();
 }
 #endif
 

@@ -36,6 +36,10 @@ if(BOARD IN_LIST BUDDY_BOARDS)
     add_subdirectory(connect)
   endif()
 
+  if(CONNECT2)
+    add_subdirectory(connect2)
+  endif()
+
   if(RESOURCES)
     add_subdirectory(resources)
   endif()
