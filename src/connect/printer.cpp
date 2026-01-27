@@ -67,6 +67,8 @@ uint32_t Printer::Params::telemetry_fingerprint(bool include_xy_axes) const {
         }
     }
 
+    const uint32_t dialog_id = state.dialog.has_value() ? state.dialog->dialog_id.to_uint32_t() : 0xFFFFFFFF;
+
     return crc
         .add(active_slot)
         .add(int(pos[Printer::Z_AXIS_POS]))
@@ -76,6 +78,13 @@ uint32_t Printer::Params::telemetry_fingerprint(bool include_xy_axes) const {
         .add(int(filament_used / 10))
         .add(int(target_nozzle))
         .add(int(temp_bed))
+        .add(has_job)
+        .add(job_id)
+        .add(progress_percent)
+        .add(time_to_end)
+        .add(time_to_pause)
+        .add(state.device_state)
+        .add(dialog_id)
 #if PRINTER_IS_PRUSA_iX
         .add(int(temp_psu))
         .add(int(temp_ambient))
