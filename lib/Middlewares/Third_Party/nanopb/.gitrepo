@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/nanopb/nanopb.git
+	branch = nanopb-0.4.9.1
+	commit = cad3c18ef15a663e30e3e43e3a752b66378adec1
+	parent = 4eecd418aa7d828e2bc90417e283e785b6c5451f
+	method = merge
+	cmdver = 0.4.9
