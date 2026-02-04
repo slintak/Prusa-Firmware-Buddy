@@ -7,6 +7,7 @@
 #include <state/printer_state.hpp>
 
 #include <common/mqtt/mqtt_client.hpp>
+#include "info_event.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -73,6 +74,11 @@ bool make_dialog_topic(char *buffer, size_t buffer_size) {
     return written > 0 && static_cast<size_t>(written) < buffer_size;
 }
 
+bool make_event_topic(char *buffer, size_t buffer_size) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/event", printer_id());
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
 uint8_t publish_flags(uint8_t qos, bool retain) {
     uint8_t flags = MQTT_PUBLISH_QOS_0;
     switch (qos) {
@@ -94,6 +100,10 @@ uint8_t publish_flags(uint8_t qos, bool retain) {
 
 bool publish_topic(buddy::mqtt::Client &mqtt_client, const char *topic, const char *payload, uint8_t qos, bool retain) {
     return mqtt_client.publish(topic, payload, publish_flags(qos, retain));
+}
+
+bool publish_topic_raw(buddy::mqtt::Client &mqtt_client, const char *topic, const uint8_t *payload, size_t payload_len, uint8_t qos, bool retain) {
+    return mqtt_client.publish_raw(topic, payload, payload_len, publish_flags(qos, retain));
 }
 
 void publish_printer_value(buddy::mqtt::Client &mqtt_client, const char *suffix, const char *payload, uint8_t qos, bool retain) {
@@ -141,6 +151,7 @@ void publish_job_value_u32(buddy::mqtt::Client &mqtt_client, uint16_t job_id, co
 
 Telemetry::Telemetry() {
     telemetry_changes_.mark_dirty();
+    info_changes_.mark_dirty();
 }
 
 bool Telemetry::build_online_topic(char *buffer, size_t buffer_size) const {
@@ -151,6 +162,7 @@ void Telemetry::reset() {
     last_telemetry_ms_ = 0;
     last_full_telemetry_ms_ = 0;
     telemetry_changes_.mark_dirty();
+    info_changes_.mark_dirty();
     online_published_ = false;
     last_ = LastTelemetry {};
 }
@@ -287,6 +299,22 @@ void Telemetry::publish_telemetry(const connect_client::Printer::Params &params,
     last_.valid = true;
 }
 
+void Telemetry::publish_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[2048];
+    size_t payload_len = 0;
+    if (!encode_info_event(payload, sizeof(payload), printer, params, payload_len)) {
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
 void Telemetry::tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client) {
     if (!mqtt_client.is_connected()) {
         return;
@@ -311,6 +339,11 @@ void Telemetry::tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client) {
             last_full_telemetry_ms_ = now_ms;
             telemetry_changes_.mark_clean();
         }
+    }
+
+    if (info_changes_.set_hash(client_printer.info_fingerprint())) {
+        publish_info_event(client_printer, params, mqtt_client);
+        info_changes_.mark_clean();
     }
 }
 

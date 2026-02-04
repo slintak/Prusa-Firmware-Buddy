@@ -52,11 +52,14 @@ private:
         bool &want_full, bool &force_baseline, bool &force_full);
     void publish_telemetry(const connect_client::Printer::Params &params, bool full,
         bool force_baseline, bool force_full, buddy::mqtt::Client &mqtt_client);
+    void publish_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client);
 
     bool online_published_ = false;
     uint32_t last_telemetry_ms_ = 0;
     uint32_t last_full_telemetry_ms_ = 0;
     connect_client::Tracked telemetry_changes_;
+    connect_client::Tracked info_changes_;
     LastTelemetry last_;
 };
 
