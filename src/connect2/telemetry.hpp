@@ -51,7 +51,7 @@ private:
     bool telemetry_due(bool printing, const connect_client::Printer::Params &params, uint32_t now_ms,
         bool &want_full, bool &force_baseline, bool &force_full);
     void publish_telemetry(const connect_client::Printer::Params &params, bool full,
-        bool force_full, buddy::mqtt::Client &mqtt_client);
+        bool force_baseline, bool force_full, buddy::mqtt::Client &mqtt_client);
 
     bool online_published_ = false;
     uint32_t last_telemetry_ms_ = 0;

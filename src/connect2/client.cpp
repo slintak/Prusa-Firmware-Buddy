@@ -44,6 +44,7 @@ void Client::step() {
     if (!net_ready) {
         if (state_ != State::Disabled) {
             mqtt_client_.disconnect();
+            telemetry_.reset();
             state_ = State::Disconnected;
             next_action_ms_ = 0;
         }
@@ -59,7 +60,15 @@ void Client::step() {
         }
         {
             const uint16_t port = cfg_.port != 0 ? cfg_.port : (cfg_.tls ? DEFAULT_PORT_TLS : DEFAULT_PORT_PLAIN);
-            if (!mqtt_client_.connect(cfg_.host, port, cfg_.tls, cfg_.custom_cert)) {
+            char will_topic[128];
+            const bool have_will = telemetry_.build_online_topic(will_topic, sizeof(will_topic));
+            const char *will_payload = "0";
+            const size_t will_payload_len = strlen(will_payload);
+            if (!mqtt_client_.connect(cfg_.host, port, cfg_.tls, cfg_.custom_cert,
+                    have_will ? will_topic : nullptr,
+                    have_will ? will_payload : nullptr,
+                    have_will ? will_payload_len : 0,
+                    1, true)) {
                 enter_backoff(now);
                 return;
             }
@@ -83,7 +92,10 @@ void Client::step() {
         mqtt_client_.step();
         if (!mqtt_client_.is_connected()) {
             enter_backoff(now);
+            telemetry_.reset();
+            return;
         }
+        telemetry_.tick(now, mqtt_client_);
         return;
     case State::Backoff:
         if (next_action_ms_ != 0 && ticks_diff(now, next_action_ms_) >= 0) {
@@ -121,6 +133,7 @@ void Client::refresh_config(uint32_t now_ms) {
         cfg_.custom_cert);
 
     mqtt_client_.disconnect();
+    telemetry_.reset();
     backoff_.reset();
     if (!cfg_.enabled || cfg_.host[0] == '\0') {
         state_ = State::Disabled;
@@ -133,6 +146,7 @@ void Client::refresh_config(uint32_t now_ms) {
 
 void Client::enter_backoff(uint32_t now_ms) {
     mqtt_client_.disconnect();
+    telemetry_.reset();
     state_ = State::Backoff;
     next_action_ms_ = now_ms + backoff_.fail();
 }

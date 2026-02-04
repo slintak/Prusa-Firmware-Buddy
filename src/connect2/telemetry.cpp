@@ -178,22 +178,22 @@ bool Telemetry::publish_online(bool online, buddy::mqtt::Client &mqtt_client) {
     return publish_topic(mqtt_client, topic, payload, 1, true);
 }
 
-void Telemetry::publish_telemetry(const connect_client::Printer::Params &params, bool full,
+void Telemetry::publish_telemetry(const connect_client::Printer::Params &params, bool full, bool force_baseline,
     bool force_full, buddy::mqtt::Client &mqtt_client) {
     const auto &head = params.slots[params.preferred_head()];
     const char *state = printer_state::to_str(params.state.device_state);
 
-    if (!last_.valid || update_str(last_.state, sizeof(last_.state), state)) {
+    if (force_baseline || !last_.valid || update_str(last_.state, sizeof(last_.state), state)) {
         publish_printer_value(mqtt_client, "/state", state, 1, true);
     }
 
-    if (!last_.valid || float_changed(last_.axis_z, params.pos[connect_client::Printer::Z_AXIS_POS])) {
+    if (force_baseline || !last_.valid || float_changed(last_.axis_z, params.pos[connect_client::Printer::Z_AXIS_POS])) {
         publish_printer_value_float(mqtt_client, "/axis-z", params.pos[connect_client::Printer::Z_AXIS_POS], 2, 0, true);
         last_.axis_z = params.pos[connect_client::Printer::Z_AXIS_POS];
     }
 
     const uint32_t current_job = params.has_job ? params.job_id : 0;
-    if (!last_.valid || last_.current_job != current_job) {
+    if (force_baseline || !last_.valid || last_.current_job != current_job) {
         publish_printer_value_u32(mqtt_client, "/current-job", current_job, 1, true);
         last_.current_job = current_job;
     }
@@ -228,18 +228,18 @@ void Telemetry::publish_telemetry(const connect_client::Printer::Params &params,
         }
     }
 
-    if (!params.has_job) {
-        if (!last_.valid || float_changed(last_.axis_x, params.pos[connect_client::Printer::X_AXIS_POS])) {
-            publish_printer_value_float(mqtt_client, "/axis-x", params.pos[connect_client::Printer::X_AXIS_POS], 2, 0, false);
-            last_.axis_x = params.pos[connect_client::Printer::X_AXIS_POS];
-        }
-        if (!last_.valid || float_changed(last_.axis_y, params.pos[connect_client::Printer::Y_AXIS_POS])) {
-            publish_printer_value_float(mqtt_client, "/axis-y", params.pos[connect_client::Printer::Y_AXIS_POS], 2, 0, false);
-            last_.axis_y = params.pos[connect_client::Printer::Y_AXIS_POS];
-        }
-    }
-
     if (full) {
+        if (!params.has_job) {
+            if (force_full || !last_.valid || float_changed(last_.axis_x, params.pos[connect_client::Printer::X_AXIS_POS])) {
+                publish_printer_value_float(mqtt_client, "/axis-x", params.pos[connect_client::Printer::X_AXIS_POS], 2, 0, false);
+                last_.axis_x = params.pos[connect_client::Printer::X_AXIS_POS];
+            }
+            if (force_full || !last_.valid || float_changed(last_.axis_y, params.pos[connect_client::Printer::Y_AXIS_POS])) {
+                publish_printer_value_float(mqtt_client, "/axis-y", params.pos[connect_client::Printer::Y_AXIS_POS], 2, 0, false);
+                last_.axis_y = params.pos[connect_client::Printer::Y_AXIS_POS];
+            }
+        }
+
         if (force_full || !last_.valid || float_changed(last_.temp_nozzle, head.temp_nozzle)) {
             publish_printer_value_float(mqtt_client, "/temp/nozzle/current", head.temp_nozzle, 1, 0, true);
             last_.temp_nozzle = head.temp_nozzle;
@@ -305,7 +305,7 @@ void Telemetry::tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client) {
     bool force_full = false;
     bool force_baseline = false;
     if (telemetry_due(printing, params, now_ms, want_full, force_baseline, force_full)) {
-        publish_telemetry(params, want_full, force_full, mqtt_client);
+        publish_telemetry(params, want_full, force_baseline, force_full, mqtt_client);
         last_telemetry_ms_ = now_ms;
         if (want_full) {
             last_full_telemetry_ms_ = now_ms;

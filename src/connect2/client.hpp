@@ -5,6 +5,7 @@
 #include <common/mqtt/mqtt_client.hpp>
 #include <common/utils/exponential_backoff.hpp>
 #include "config.hpp"
+#include "telemetry.hpp"
 
 namespace connect2_client {
 
@@ -32,6 +33,7 @@ private:
     static bool is_idle_state(State state);
 
     buddy::mqtt::Client &mqtt_client_;
+    Telemetry telemetry_;
     Config cfg_ {};
     uint32_t last_cfg_hash_ = 0;
     State state_ = State::Disabled;
