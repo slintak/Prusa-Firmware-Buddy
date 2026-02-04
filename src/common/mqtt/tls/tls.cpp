@@ -4,11 +4,14 @@
 #include <stdbool.h>
 #include <memory>
 #include <cstdio>
+#include <limits>
 
 #include <logging/log.hpp>
 #include <unique_file_ptr.hpp>
 #include <common/heap.h>
 #include <common/conserve_cpu.hpp>
+
+#include "FreeRTOS.h"
 
 #include <mbedtls/sha256.h>
 #include <mbedtls/x509_crt.h>
@@ -102,6 +105,51 @@ void log_verify_flags(uint32_t flags) {
     log_info(mqtt, "tls_verify_flags=0x%08x (%s)", static_cast<unsigned>(flags), info);
 }
 
+size_t probe_largest_alloc(size_t low, size_t high, size_t alignment = 8) {
+    if (high < low) {
+        return 0;
+    }
+
+    high = (high / alignment) * alignment;
+
+    size_t best = 0;
+    while (low <= high) {
+        size_t mid = low + (high - low) / 2;
+        mid = (mid / alignment) * alignment;
+
+        void *p = malloc_fallible(mid);
+        if (p) {
+            free(p);
+            best = mid;
+            low = mid + alignment;
+        } else {
+            if (mid == 0) {
+                break;
+            }
+            high = mid - alignment;
+        }
+    }
+    return best;
+}
+
+void log_heap_metrics(const char *phase, size_t min_override) {
+    const size_t free_heap = xPortGetFreeHeapSize();
+    const size_t safety = 4096;
+    const size_t hi = (free_heap > safety) ? (free_heap - safety) : 0;
+    const size_t largest = (hi >= 256) ? probe_largest_alloc(256, hi, 8) : 0;
+    const unsigned frag_pct = (free_heap > 0 && largest <= free_heap)
+        ? static_cast<unsigned>((100u * (free_heap - largest)) / free_heap)
+        : 0u;
+
+    log_info(mqtt,
+        "[METRICS] tls=%s heap_free=%u heap_min=%u heap_largest_alloc=%u heap_frag~=%u%%",
+        phase,
+        static_cast<unsigned>(free_heap),
+        static_cast<unsigned>(min_override),
+        static_cast<unsigned>(largest),
+        frag_pct);
+}
+
 } // namespace
 
 namespace buddy::mqtt {
@@ -134,7 +182,7 @@ tls::~tls() {
 
 std::optional<Error> tls::connection(const char *connection_host, uint16_t connection_port, const char *destination_host, uint16_t destination_port) {
 
-    log_debug(mqtt, "Starting SSL handshake");
+    log_info(mqtt, "Starting SSL handshake");
     int status;
     InitContexts ctxs;
 
@@ -222,7 +270,7 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
             ++idx;
         }
     }
-    log_debug(mqtt, "Loaded certs");
+    log_info(mqtt, "Loaded certs");
 
     mbedtls_ssl_conf_ca_chain(&ssl_config, &ctxs.x509_certificate, NULL);
 
@@ -263,6 +311,15 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         return Error::Proxy;
     }
 
+    size_t handshake_min_heap = std::numeric_limits<size_t>::max();
+    {
+        const size_t free_heap = xPortGetFreeHeapSize();
+        if (free_heap < handshake_min_heap) {
+            handshake_min_heap = free_heap;
+        }
+    }
+    log_heap_metrics("handshake_start", handshake_min_heap);
+
     while (true) {
         net_context.timeout_happened = false;
         status = mbedtls_ssl_handshake(&ssl_context);
@@ -272,6 +329,13 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         if (status != MBEDTLS_ERR_SSL_WANT_READ && status != MBEDTLS_ERR_SSL_WANT_WRITE) {
             log_info(mqtt, "ssl handshake failed with: %d", status);
             return Error::Tls;
+        }
+
+        {
+            const size_t free_heap = xPortGetFreeHeapSize();
+            if (free_heap < handshake_min_heap) {
+                handshake_min_heap = free_heap;
+            }
         }
 
         if (net_context.timeout_happened) {
@@ -286,6 +350,14 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         }
     }
 
+    {
+        const size_t free_heap = xPortGetFreeHeapSize();
+        if (free_heap < handshake_min_heap) {
+            handshake_min_heap = free_heap;
+        }
+    }
+    log_heap_metrics("handshake_done", handshake_min_heap);
+
     if (const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&ssl_context); peer != nullptr) {
         log_cert_fingerprint("server_cert", peer->raw.p, peer->raw.len);
     } else {
@@ -299,7 +371,7 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         return Error::Tls;
     }
 
-    log_debug(mqtt, "SSL done");
+    log_info(mqtt, "SSL done");
 
     return std::nullopt;
 }
