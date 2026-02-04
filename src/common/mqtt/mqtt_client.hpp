@@ -38,6 +38,7 @@ public:
     void step();
     bool is_connected() const;
     bool publish(const char *topic, const char *payload, uint8_t publish_flags);
+    bool publish_raw(const char *topic, const uint8_t *payload, size_t payload_len, uint8_t publish_flags);
 
 private:
     Config cfg_;

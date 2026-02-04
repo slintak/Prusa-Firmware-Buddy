@@ -154,4 +154,12 @@ bool Client::publish(const char *topic, const char *payload, uint8_t publish_fla
     return err == MQTT_OK;
 }
 
+bool Client::publish_raw(const char *topic, const uint8_t *payload, size_t payload_len, uint8_t publish_flags) {
+    if (!initialized_ || !connected_ || connect_inflight_) {
+        return false;
+    }
+    const enum MQTTErrors err = mqtt_publish(&client_, topic, payload, payload_len, publish_flags);
+    return err == MQTT_OK;
+}
+
 } // namespace buddy::mqtt
