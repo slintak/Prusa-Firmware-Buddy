@@ -341,6 +341,91 @@ void Telemetry::publish_info_now(buddy::mqtt::Client &mqtt_client, uint32_t comm
     info_changes_.mark_clean();
 }
 
+void Telemetry::publish_job_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client, uint32_t start_cmd_id, uint32_t command_id, std::optional<uint32_t> job_id) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[2048];
+    size_t payload_len = 0;
+    if (!encode_job_info_event(payload, sizeof(payload), printer, params, start_cmd_id, payload_len, command_id, job_id)) {
+        const char *reason = (job_id.has_value() && params.has_job) ? "Job ID doesn't match" : "No job in progress";
+        publish_rejected_event(printer, params, mqtt_client, reason, command_id);
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
+void Telemetry::publish_job_info_now(buddy::mqtt::Client &mqtt_client, uint32_t start_cmd_id, uint32_t command_id,
+    std::optional<uint32_t> job_id) {
+    const auto &client_printer = shared_printer();
+    const auto params = client_printer.params();
+    publish_job_info_event(client_printer, params, mqtt_client, start_cmd_id, command_id, job_id);
+}
+
+void Telemetry::publish_finished_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client, uint32_t command_id) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[512];
+    size_t payload_len = 0;
+    if (!encode_finished_event(payload, sizeof(payload), printer, params, payload_len, command_id)) {
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
+void Telemetry::publish_finished_now(buddy::mqtt::Client &mqtt_client, uint32_t command_id) {
+    const auto &client_printer = shared_printer();
+    const auto params = client_printer.params();
+    publish_finished_event(client_printer, params, mqtt_client, command_id);
+}
+
+void Telemetry::publish_failed_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client, uint32_t command_id) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[512];
+    size_t payload_len = 0;
+    if (!encode_failed_event(payload, sizeof(payload), printer, params, payload_len, command_id)) {
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
+void Telemetry::publish_failed_now(buddy::mqtt::Client &mqtt_client, uint32_t command_id) {
+    const auto &client_printer = shared_printer();
+    const auto params = client_printer.params();
+    publish_failed_event(client_printer, params, mqtt_client, command_id);
+}
+
+void Telemetry::publish_state_changed_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client, uint32_t command_id) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[512];
+    size_t payload_len = 0;
+    if (!encode_state_changed_event(payload, sizeof(payload), printer, params, payload_len, command_id)) {
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
 void Telemetry::publish_file_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
     buddy::mqtt::Client &mqtt_client, const char *path, uint32_t command_id) {
     char topic[128];
@@ -461,6 +546,10 @@ void Telemetry::tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client) {
     if (info_changes_.set_hash(client_printer.info_fingerprint())) {
         publish_info_event(client_printer, params, mqtt_client, 0);
         info_changes_.mark_clean();
+    }
+
+    if (state_changes_.set_hash(params.state_fingerprint())) {
+        publish_state_changed_event(client_printer, params, mqtt_client, 0);
     }
 
     process_changed_paths(client_printer, params, mqtt_client);

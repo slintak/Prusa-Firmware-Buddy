@@ -97,6 +97,45 @@ message Rejected {
   string reason = 1;
 }
 
+message JobInfo {
+  string state = 1;
+  uint64 size = 2;
+  uint64 m_timestamp = 3;
+  string display_name = 4;
+  uint32 start_cmd_id = 5;
+  string path = 6;
+}
+
+message JobInfoEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  uint32 command_id = 4;
+  uint32 job_id = 5;
+  JobInfo job_info = 6;
+}
+
+message FinishedEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  uint32 command_id = 4;
+}
+
+message FailedEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  uint32 command_id = 4;
+}
+
+message StateChangedEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  uint32 command_id = 4;
+}
+
 message FileInfoEvent {
   string event = 1;
   string state = 2;

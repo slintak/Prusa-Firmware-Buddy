@@ -18,6 +18,7 @@
 #include <gui/file_list_defs.h>
 
 #include "info_event.pb.h"
+#include <common/marlin_vars.hpp>
 
 #include <option/has_chamber_filtration_api.h>
 #if HAS_CHAMBER_FILTRATION_API()
@@ -385,6 +386,158 @@ bool encode_rejected_event(uint8_t *buffer, size_t buffer_size,
 
     pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
     if (!pb_encode(&stream, RejectedEvent_fields, &msg)) {
+        return false;
+    }
+    out_size = stream.bytes_written;
+    return true;
+}
+
+bool encode_job_info_event(uint8_t *buffer, size_t buffer_size,
+    const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params,
+    uint32_t start_cmd_id,
+    size_t &out_size,
+    uint32_t command_id,
+    std::optional<uint32_t> job_id) {
+    (void)printer;
+    if (!params.has_job || params.job_path() == nullptr) {
+        // Try to recover path/lfn directly from marlin vars if the shared buffer isn't available.
+        char path_buf[FILE_PATH_BUFFER_LEN] = {};
+        char name_buf[FILE_NAME_BUFFER_LEN] = {};
+        {
+            auto lock = MarlinVarsLockGuard();
+            marlin_vars().media_SFN_path.copy_to(path_buf, FILE_PATH_BUFFER_LEN, lock);
+            marlin_vars().media_LFN.copy_to(name_buf, FILE_NAME_BUFFER_LEN, lock);
+        }
+        if (!params.has_job || path_buf[0] == '\0') {
+            return false;
+        }
+        // Use recovered paths below.
+        // Note: params.job_path()/job_lfn() remain null; use locals instead.
+        // We'll stash them into local variables later.
+    }
+    if (job_id.has_value() && params.job_id != job_id.value()) {
+        return false;
+    }
+
+    JobInfoEvent msg = JobInfoEvent_init_zero;
+    set_str(msg.event, sizeof(msg.event), "JOB_INFO");
+    set_str(msg.state, sizeof(msg.state), printer_state::to_str(params.state.device_state));
+    if (params.state.dialog.has_value()) {
+        msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+    }
+    msg.command_id = command_id;
+    msg.job_id = params.job_id;
+    msg.has_job_info = true;
+
+    JobInfo &job = msg.job_info;
+    if (params.state.device_state == printer_state::DeviceState::Printing) {
+        set_str(job.state, sizeof(job.state), "PRINTING");
+    } else {
+        set_str(job.state, sizeof(job.state), "PAUSED");
+    }
+
+    struct stat st = {};
+    const char *path = params.job_path();
+    const char *lfn = params.job_lfn();
+    char path_buf[FILE_PATH_BUFFER_LEN] = {};
+    char name_buf[FILE_NAME_BUFFER_LEN] = {};
+    if (path == nullptr) {
+        auto lock = MarlinVarsLockGuard();
+        marlin_vars().media_SFN_path.copy_to(path_buf, FILE_PATH_BUFFER_LEN, lock);
+        marlin_vars().media_LFN.copy_to(name_buf, FILE_NAME_BUFFER_LEN, lock);
+        if (path_buf[0] != '\0') {
+            path = path_buf;
+        }
+        if (name_buf[0] != '\0') {
+            lfn = name_buf;
+        }
+    }
+
+    if (path != nullptr && stat(path, &st) == 0) {
+        job.size = st.st_size;
+        job.m_timestamp = st.st_mtime;
+    }
+
+    if (lfn != nullptr && lfn[0] != '\0') {
+        set_str(job.display_name, sizeof(job.display_name), lfn);
+    } else {
+        set_str(job.display_name, sizeof(job.display_name), path != nullptr ? basename_b(path) : "");
+    }
+    job.start_cmd_id = start_cmd_id;
+    set_str(job.path, sizeof(job.path), path != nullptr ? path : "");
+
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+    if (!pb_encode(&stream, JobInfoEvent_fields, &msg)) {
+        return false;
+    }
+    out_size = stream.bytes_written;
+    return true;
+}
+
+bool encode_finished_event(uint8_t *buffer, size_t buffer_size,
+    const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params,
+    size_t &out_size,
+    uint32_t command_id) {
+    (void)printer;
+
+    FinishedEvent msg = FinishedEvent_init_zero;
+    set_str(msg.event, sizeof(msg.event), "FINISHED");
+    set_str(msg.state, sizeof(msg.state), printer_state::to_str(params.state.device_state));
+    if (params.state.dialog.has_value()) {
+        msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+    }
+    msg.command_id = command_id;
+
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+    if (!pb_encode(&stream, FinishedEvent_fields, &msg)) {
+        return false;
+    }
+    out_size = stream.bytes_written;
+    return true;
+}
+
+bool encode_failed_event(uint8_t *buffer, size_t buffer_size,
+    const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params,
+    size_t &out_size,
+    uint32_t command_id) {
+    (void)printer;
+
+    FailedEvent msg = FailedEvent_init_zero;
+    set_str(msg.event, sizeof(msg.event), "FAILED");
+    set_str(msg.state, sizeof(msg.state), printer_state::to_str(params.state.device_state));
+    if (params.state.dialog.has_value()) {
+        msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+    }
+    msg.command_id = command_id;
+
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+    if (!pb_encode(&stream, FailedEvent_fields, &msg)) {
+        return false;
+    }
+    out_size = stream.bytes_written;
+    return true;
+}
+
+bool encode_state_changed_event(uint8_t *buffer, size_t buffer_size,
+    const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params,
+    size_t &out_size,
+    uint32_t command_id) {
+    (void)printer;
+
+    StateChangedEvent msg = StateChangedEvent_init_zero;
+    set_str(msg.event, sizeof(msg.event), "STATE_CHANGED");
+    set_str(msg.state, sizeof(msg.state), printer_state::to_str(params.state.device_state));
+    if (params.state.dialog.has_value()) {
+        msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+    }
+    msg.command_id = command_id;
+
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+    if (!pb_encode(&stream, StateChangedEvent_fields, &msg)) {
         return false;
     }
     out_size = stream.bytes_written;

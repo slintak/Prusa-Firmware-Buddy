@@ -116,6 +116,46 @@ typedef struct _Rejected {
     char reason[65];
 } Rejected;
 
+typedef struct _JobInfo {
+    char state[17];
+    uint64_t size;
+    uint64_t m_timestamp;
+    char display_name[65];
+    uint32_t start_cmd_id;
+    char path[105];
+} JobInfo;
+
+typedef struct _JobInfoEvent {
+    char event[17];
+    char state[17];
+    uint32_t dialog_id;
+    uint32_t command_id;
+    uint32_t job_id;
+    bool has_job_info;
+    JobInfo job_info;
+} JobInfoEvent;
+
+typedef struct _FinishedEvent {
+    char event[17];
+    char state[17];
+    uint32_t dialog_id;
+    uint32_t command_id;
+} FinishedEvent;
+
+typedef struct _FailedEvent {
+    char event[17];
+    char state[17];
+    uint32_t dialog_id;
+    uint32_t command_id;
+} FailedEvent;
+
+typedef struct _StateChangedEvent {
+    char event[17];
+    char state[17];
+    uint32_t dialog_id;
+    uint32_t command_id;
+} StateChangedEvent;
+
 typedef struct _FileInfoEvent {
     char event[17];
     char state[17];
@@ -160,6 +200,11 @@ extern "C" {
 #define FileInfo_init_default                    {"", "", "", 0, 0, 0, 0, {FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default}, 0}
 #define FileChanged_init_default                 {0, "", "", 0, false, FileEntry_init_default}
 #define Rejected_init_default                    {""}
+#define JobInfo_init_default                     {"", 0, 0, "", 0, ""}
+#define JobInfoEvent_init_default                {"", "", 0, 0, 0, false, JobInfo_init_default}
+#define FinishedEvent_init_default               {"", "", 0, 0}
+#define FailedEvent_init_default                 {"", "", 0, 0}
+#define StateChangedEvent_init_default           {"", "", 0, 0}
 #define FileInfoEvent_init_default               {"", "", 0, 0, false, FileInfo_init_default}
 #define FileChangedEvent_init_default            {"", "", 0, 0, false, FileChanged_init_default}
 #define RejectedEvent_init_default               {"", "", 0, 0, false, Rejected_init_default}
@@ -174,6 +219,11 @@ extern "C" {
 #define FileInfo_init_zero                       {"", "", "", 0, 0, 0, 0, {FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero}, 0}
 #define FileChanged_init_zero                    {0, "", "", 0, false, FileEntry_init_zero}
 #define Rejected_init_zero                       {""}
+#define JobInfo_init_zero                        {"", 0, 0, "", 0, ""}
+#define JobInfoEvent_init_zero                   {"", "", 0, 0, 0, false, JobInfo_init_zero}
+#define FinishedEvent_init_zero                  {"", "", 0, 0}
+#define FailedEvent_init_zero                    {"", "", 0, 0}
+#define StateChangedEvent_init_zero              {"", "", 0, 0}
 #define FileInfoEvent_init_zero                  {"", "", 0, 0, false, FileInfo_init_zero}
 #define FileChangedEvent_init_zero               {"", "", 0, 0, false, FileChanged_init_zero}
 #define RejectedEvent_init_zero                  {"", "", 0, 0, false, Rejected_init_zero}
@@ -243,6 +293,30 @@ extern "C" {
 #define FileChanged_rescan_tag                   4
 #define FileChanged_file_tag                     5
 #define Rejected_reason_tag                      1
+#define JobInfo_state_tag                        1
+#define JobInfo_size_tag                         2
+#define JobInfo_m_timestamp_tag                  3
+#define JobInfo_display_name_tag                 4
+#define JobInfo_start_cmd_id_tag                 5
+#define JobInfo_path_tag                         6
+#define JobInfoEvent_event_tag                   1
+#define JobInfoEvent_state_tag                   2
+#define JobInfoEvent_dialog_id_tag               3
+#define JobInfoEvent_command_id_tag              4
+#define JobInfoEvent_job_id_tag                  5
+#define JobInfoEvent_job_info_tag                6
+#define FinishedEvent_event_tag                  1
+#define FinishedEvent_state_tag                  2
+#define FinishedEvent_dialog_id_tag              3
+#define FinishedEvent_command_id_tag             4
+#define FailedEvent_event_tag                    1
+#define FailedEvent_state_tag                    2
+#define FailedEvent_dialog_id_tag                3
+#define FailedEvent_command_id_tag               4
+#define StateChangedEvent_event_tag              1
+#define StateChangedEvent_state_tag              2
+#define StateChangedEvent_dialog_id_tag          3
+#define StateChangedEvent_command_id_tag         4
 #define FileInfoEvent_event_tag                  1
 #define FileInfoEvent_state_tag                  2
 #define FileInfoEvent_dialog_id_tag              3
@@ -376,6 +450,51 @@ X(a, STATIC,   SINGULAR, STRING,   reason,            1)
 #define Rejected_CALLBACK NULL
 #define Rejected_DEFAULT NULL
 
+#define JobInfo_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   state,             1) \
+X(a, STATIC,   SINGULAR, UINT64,   size,              2) \
+X(a, STATIC,   SINGULAR, UINT64,   m_timestamp,       3) \
+X(a, STATIC,   SINGULAR, STRING,   display_name,      4) \
+X(a, STATIC,   SINGULAR, UINT32,   start_cmd_id,      5) \
+X(a, STATIC,   SINGULAR, STRING,   path,              6)
+#define JobInfo_CALLBACK NULL
+#define JobInfo_DEFAULT NULL
+
+#define JobInfoEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   event,             1) \
+X(a, STATIC,   SINGULAR, STRING,   state,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4) \
+X(a, STATIC,   SINGULAR, UINT32,   job_id,            5) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  job_info,          6)
+#define JobInfoEvent_CALLBACK NULL
+#define JobInfoEvent_DEFAULT NULL
+#define JobInfoEvent_job_info_MSGTYPE JobInfo
+
+#define FinishedEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   event,             1) \
+X(a, STATIC,   SINGULAR, STRING,   state,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4)
+#define FinishedEvent_CALLBACK NULL
+#define FinishedEvent_DEFAULT NULL
+
+#define FailedEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   event,             1) \
+X(a, STATIC,   SINGULAR, STRING,   state,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4)
+#define FailedEvent_CALLBACK NULL
+#define FailedEvent_DEFAULT NULL
+
+#define StateChangedEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   event,             1) \
+X(a, STATIC,   SINGULAR, STRING,   state,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4)
+#define StateChangedEvent_CALLBACK NULL
+#define StateChangedEvent_DEFAULT NULL
+
 #define FileInfoEvent_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   event,             1) \
 X(a, STATIC,   SINGULAR, STRING,   state,             2) \
@@ -417,6 +536,11 @@ extern const pb_msgdesc_t FileEntry_msg;
 extern const pb_msgdesc_t FileInfo_msg;
 extern const pb_msgdesc_t FileChanged_msg;
 extern const pb_msgdesc_t Rejected_msg;
+extern const pb_msgdesc_t JobInfo_msg;
+extern const pb_msgdesc_t JobInfoEvent_msg;
+extern const pb_msgdesc_t FinishedEvent_msg;
+extern const pb_msgdesc_t FailedEvent_msg;
+extern const pb_msgdesc_t StateChangedEvent_msg;
 extern const pb_msgdesc_t FileInfoEvent_msg;
 extern const pb_msgdesc_t FileChangedEvent_msg;
 extern const pb_msgdesc_t RejectedEvent_msg;
@@ -433,24 +557,34 @@ extern const pb_msgdesc_t RejectedEvent_msg;
 #define FileInfo_fields &FileInfo_msg
 #define FileChanged_fields &FileChanged_msg
 #define Rejected_fields &Rejected_msg
+#define JobInfo_fields &JobInfo_msg
+#define JobInfoEvent_fields &JobInfoEvent_msg
+#define FinishedEvent_fields &FinishedEvent_msg
+#define FailedEvent_fields &FailedEvent_msg
+#define StateChangedEvent_fields &StateChangedEvent_msg
 #define FileInfoEvent_fields &FileInfoEvent_msg
 #define FileChangedEvent_fields &FileChangedEvent_msg
 #define RejectedEvent_fields &RejectedEvent_msg
 
 /* Maximum encoded size of messages (where known) */
 #define Enclosure_size                           1106
+#define FailedEvent_size                         48
 #define FileChangedEvent_size                    445
 #define FileChanged_size                         394
 #define FileEntry_size                           166
 #define FileInfoEvent_size                       1615
 #define FileInfo_size                            1564
+#define FinishedEvent_size                       48
 #define INFO_EVENT_PB_H_MAX_SIZE                 InfoEvent_size
 #define InfoData_size                            1652
 #define InfoEvent_size                           1703
+#define JobInfoEvent_size                        275
+#define JobInfo_size                             218
 #define Mmu_size                                 20
 #define NetworkInfo_size                         132
 #define RejectedEvent_size                       116
 #define Rejected_size                            66
+#define StateChangedEvent_size                   48
 #define Storage_size                             43
 #define Tool_size                                25
 

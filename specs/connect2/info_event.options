@@ -40,6 +40,20 @@ FileChanged.old_path max_length: 104
 
 Rejected.reason max_length: 64
 
+JobInfo.state max_length: 16
+JobInfo.display_name max_length: 64
+JobInfo.path max_length: 104
+
+JobInfoEvent.event max_length: 16
+JobInfoEvent.state max_length: 16
+
+FinishedEvent.event max_length: 16
+FinishedEvent.state max_length: 16
+FailedEvent.event max_length: 16
+FailedEvent.state max_length: 16
+StateChangedEvent.event max_length: 16
+StateChangedEvent.state max_length: 16
+
 FileInfoEvent.event max_length: 16
 FileInfoEvent.state max_length: 16
 FileChangedEvent.event max_length: 16

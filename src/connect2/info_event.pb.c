@@ -39,6 +39,21 @@ PB_BIND(FileChanged, FileChanged, 2)
 PB_BIND(Rejected, Rejected, AUTO)
 
 
+PB_BIND(JobInfo, JobInfo, AUTO)
+
+
+PB_BIND(JobInfoEvent, JobInfoEvent, 2)
+
+
+PB_BIND(FinishedEvent, FinishedEvent, AUTO)
+
+
+PB_BIND(FailedEvent, FailedEvent, AUTO)
+
+
+PB_BIND(StateChangedEvent, StateChangedEvent, AUTO)
+
+
 PB_BIND(FileInfoEvent, FileInfoEvent, 2)
 
 

@@ -23,6 +23,10 @@ public:
     bool build_online_topic(char *buffer, size_t buffer_size) const;
     bool build_command_topic(char *buffer, size_t buffer_size) const;
     void publish_info_now(buddy::mqtt::Client &mqtt_client, uint32_t command_id);
+    void publish_job_info_now(buddy::mqtt::Client &mqtt_client, uint32_t start_cmd_id, uint32_t command_id,
+        std::optional<uint32_t> job_id);
+    void publish_finished_now(buddy::mqtt::Client &mqtt_client, uint32_t command_id);
+    void publish_failed_now(buddy::mqtt::Client &mqtt_client, uint32_t command_id);
     void publish_file_info_now(buddy::mqtt::Client &mqtt_client, const char *path, uint32_t command_id);
     void publish_rejected_now(buddy::mqtt::Client &mqtt_client, const connect_client::Printer &printer,
         const connect_client::Printer::Params &params, const char *reason, uint32_t command_id);
@@ -62,6 +66,14 @@ private:
         bool force_baseline, bool force_full, buddy::mqtt::Client &mqtt_client);
     void publish_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
         buddy::mqtt::Client &mqtt_client, uint32_t command_id);
+    void publish_job_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, uint32_t start_cmd_id, uint32_t command_id, std::optional<uint32_t> job_id);
+    void publish_finished_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, uint32_t command_id);
+    void publish_failed_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, uint32_t command_id);
+    void publish_state_changed_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, uint32_t command_id);
     void publish_file_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
         buddy::mqtt::Client &mqtt_client, const char *path, uint32_t command_id);
     void publish_file_changed_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
@@ -76,6 +88,7 @@ private:
     uint32_t last_telemetry_ms_ = 0;
     uint32_t last_full_telemetry_ms_ = 0;
     connect_client::Tracked telemetry_changes_;
+    connect_client::Tracked state_changes_;
     connect_client::Tracked info_changes_;
     LastTelemetry last_;
 };

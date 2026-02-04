@@ -10,6 +10,8 @@
 
 #include "command.hpp"
 #include <logging/log.hpp>
+#include <common/mutable_path.hpp>
+#include <transfers/transfer_file_check.hpp>
 
 LOG_COMPONENT_REF(connect2);
 
@@ -21,6 +23,18 @@ constexpr uint32_t CONFIG_REFRESH_MS = 10000;
 constexpr uint32_t CONNECT_TIMEOUT_MS = 60000;
 constexpr uint16_t DEFAULT_PORT_PLAIN = 1883;
 constexpr uint16_t DEFAULT_PORT_TLS = 8883;
+
+bool path_allowed(const char *path) {
+    constexpr const char *const usb = "/usb/";
+    const bool is_on_usb = strncmp(path, usb, strlen(usb)) == 0 || strcmp(path, "/usb") == 0;
+    const bool contains_upper = strstr(path, "/../") != nullptr;
+    return is_on_usb && !contains_upper;
+}
+
+bool path_valid_file_or_transfer(const char *path) {
+    MutablePath file(path);
+    return transfers::is_valid_file_or_transfer(file);
+}
 
 } // namespace
 
@@ -221,6 +235,50 @@ void Client::handle_publish(const char *topic, size_t topic_len, const uint8_t *
     } else if (cmd.type == CommandType::SendFileInfo) {
         if (cmd.path[0] != '\0') {
             telemetry_.publish_file_info_now(mqtt_client_, cmd.path, cmd.command_id);
+        }
+    } else if (cmd.type == CommandType::StartPrint) {
+        auto &printer = shared_printer();
+        const auto params = printer.params();
+        const char *reason = nullptr;
+        if (cmd.path[0] == '\0' || !path_allowed(cmd.path)) {
+            reason = "Forbidden path";
+        } else if (!path_valid_file_or_transfer(cmd.path)) {
+            reason = "File not found";
+        } else if (const char *error = printer.start_print(cmd.path, std::nullopt); error != nullptr) {
+            reason = error;
+        }
+
+        if (reason == nullptr) {
+            telemetry_.publish_job_info_now(mqtt_client_, cmd.command_id, cmd.command_id, std::nullopt);
+        } else {
+            telemetry_.publish_rejected_now(mqtt_client_, printer, params, reason, cmd.command_id);
+        }
+    } else if (cmd.type == CommandType::SendJobInfo) {
+        telemetry_.publish_job_info_now(mqtt_client_, cmd.command_id, cmd.command_id,
+            cmd.job_id != 0 ? std::optional<uint32_t>(cmd.job_id) : std::nullopt);
+    } else if (cmd.type == CommandType::PausePrint) {
+        auto &printer = shared_printer();
+        const auto params = printer.params();
+        if (printer.job_control(connect_client::Printer::JobControl::Pause)) {
+            telemetry_.publish_finished_now(mqtt_client_, cmd.command_id);
+        } else {
+            telemetry_.publish_rejected_now(mqtt_client_, printer, params, "No print to pause", cmd.command_id);
+        }
+    } else if (cmd.type == CommandType::ResumePrint) {
+        auto &printer = shared_printer();
+        const auto params = printer.params();
+        if (printer.job_control(connect_client::Printer::JobControl::Resume)) {
+            telemetry_.publish_finished_now(mqtt_client_, cmd.command_id);
+        } else {
+            telemetry_.publish_rejected_now(mqtt_client_, printer, params, "No paused print to resume", cmd.command_id);
+        }
+    } else if (cmd.type == CommandType::StopPrint) {
+        auto &printer = shared_printer();
+        const auto params = printer.params();
+        if (printer.job_control(connect_client::Printer::JobControl::Stop)) {
+            telemetry_.publish_finished_now(mqtt_client_, cmd.command_id);
+        } else {
+            telemetry_.publish_rejected_now(mqtt_client_, printer, params, "No print to stop", cmd.command_id);
         }
     }
 }

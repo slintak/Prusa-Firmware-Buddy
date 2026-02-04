@@ -92,6 +92,10 @@ def main() -> int:
         data = msg.payload
         decoders = [
             ("InfoEvent", info_event_pb2.InfoEvent, "INFO", "data"),
+            ("JobInfoEvent", info_event_pb2.JobInfoEvent, "JOB_INFO", "job_info"),
+            ("FinishedEvent", info_event_pb2.FinishedEvent, "FINISHED", None),
+            ("FailedEvent", info_event_pb2.FailedEvent, "FAILED", None),
+            ("StateChangedEvent", info_event_pb2.StateChangedEvent, "STATE_CHANGED", None),
             ("FileInfoEvent", info_event_pb2.FileInfoEvent, "FILE_INFO", "file_info"),
             ("FileChangedEvent", info_event_pb2.FileChangedEvent, "FILE_CHANGED", "file_changed"),
             ("RejectedEvent", info_event_pb2.RejectedEvent, "REJECTED", "rejected"),
@@ -107,7 +111,7 @@ def main() -> int:
                     continue
                 if decoded.get("event") != expected_event:
                     continue
-                if expected_field not in decoded:
+                if expected_field is not None and expected_field not in decoded:
                     continue
                 if args.pretty:
                     payload = json.dumps(decoded, ensure_ascii=False, indent=2, sort_keys=True)
