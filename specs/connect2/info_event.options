@@ -1,0 +1,27 @@
+InfoEvent.event max_length: 16
+InfoEvent.state max_length: 16
+
+InfoData.firmware max_length: 64
+InfoData.printer_type max_length: 16
+InfoData.sn max_length: 32
+InfoData.fingerprint max_length: 50
+InfoData.api_key max_length: 16
+InfoData.storages max_count: 1
+InfoData.tools max_count: 5
+
+Storage.mountpoint max_length: 16
+Storage.type max_length: 8
+
+NetworkInfo.lan_mac max_length: 18
+NetworkInfo.lan_ipv4 max_length: 16
+NetworkInfo.wifi_ssid max_length: 32
+NetworkInfo.wifi_mac max_length: 18
+NetworkInfo.wifi_ipv4 max_length: 16
+NetworkInfo.hostname max_length: 20
+
+Tool.material max_length: 8
+
+Enclosure.filtration_filaments max_length: 32
+Enclosure.filtration_filaments max_count: 32
+
+Mmu.version max_length: 16

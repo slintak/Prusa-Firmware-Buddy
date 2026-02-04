@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+message InfoEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  InfoData data = 4;
+}
+
+message InfoData {
+  string firmware = 1;
+  string printer_type = 2;
+  string sn = 3;
+  bool appendix = 4;
+  string fingerprint = 5;
+  float nozzle_diameter = 6;
+  bool transfer_paused = 7;
+  string api_key = 8;
+  repeated Storage storages = 9;
+  NetworkInfo network_info = 10;
+  repeated Tool tools = 11;
+  Enclosure enclosure = 12;
+  Mmu mmu = 13;
+  bool addon_power = 14;
+  uint32 slots = 15;
+}
+
+message Storage {
+  string mountpoint = 1;
+  string type = 2;
+  bool read_only = 3;
+  uint64 free_space = 4;
+  bool is_sfn = 5;
+}
+
+message NetworkInfo {
+  string lan_mac = 1;
+  string lan_ipv4 = 2;
+  string wifi_ssid = 3;
+  string wifi_mac = 4;
+  string wifi_ipv4 = 5;
+  string hostname = 6;
+}
+
+message Tool {
+  uint32 slot = 1;
+  float nozzle_diameter = 2;
+  bool high_flow = 3;
+  bool hardened = 4;
+  string material = 5;
+}
+
+message Enclosure {
+  bool enabled = 1;
+  bool printing_filtration = 2;
+  bool post_print = 3;
+  uint32 post_print_filtration_time = 4;
+  uint32 filter_lifetime = 5;
+  repeated string filtration_filaments = 6;
+}
+
+message Mmu {
+  bool enabled = 1;
+  string version = 2;
+}
