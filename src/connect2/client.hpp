@@ -9,7 +9,7 @@ namespace connect2_client {
 
 class Client {
 public:
-    Client();
+    explicit Client(buddy::mqtt::Client &mqtt_client);
     void run();
 
 private:
@@ -29,7 +29,7 @@ private:
     static uint32_t config_hash(const Config &cfg);
     static bool is_idle_state(State state);
 
-    buddy::mqtt::Client mqtt_client_;
+    buddy::mqtt::Client &mqtt_client_;
     Config cfg_ {};
     uint32_t last_cfg_hash_ = 0;
     State state_ = State::Disabled;

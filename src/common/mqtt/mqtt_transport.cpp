@@ -5,14 +5,13 @@
 namespace buddy::mqtt {
 
 namespace {
-constexpr uint8_t HANDSHAKE_TIMEOUT_S = 60;
-constexpr uint8_t IO_TIMEOUT_S = 5;
+constexpr uint8_t SOCKET_TIMEOUT_S = 1;
 } // namespace
 
 bool MqttTransport::open(const char *host, uint16_t port, bool tls, bool custom_cert) {
     close();
     if (tls) {
-        tls_conn_ = std::make_unique<buddy::mqtt::tls>(HANDSHAKE_TIMEOUT_S, custom_cert);
+        tls_conn_ = std::make_unique<buddy::mqtt::tls>(SOCKET_TIMEOUT_S, custom_cert);
         if (!tls_conn_) {
             return false;
         }
@@ -21,12 +20,11 @@ bool MqttTransport::open(const char *host, uint16_t port, bool tls, bool custom_
             tls_conn_.reset();
             return false;
         }
-        tls_conn_->set_io_timeout_s(IO_TIMEOUT_S);
         kind_ = Kind::Tls;
         return true;
     }
 
-    plain_conn_ = std::make_unique<buddy::mqtt::socket_con>(HANDSHAKE_TIMEOUT_S);
+    plain_conn_ = std::make_unique<http::socket_con>(SOCKET_TIMEOUT_S);
     if (!plain_conn_) {
         return false;
     }
@@ -35,7 +33,6 @@ bool MqttTransport::open(const char *host, uint16_t port, bool tls, bool custom_
         plain_conn_.reset();
         return false;
     }
-    plain_conn_->set_timeout_s(IO_TIMEOUT_S);
     kind_ = Kind::Plain;
     return true;
 }
@@ -53,11 +50,7 @@ int MqttTransport::send(const uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        if (err == http::Error::Timeout) {
-            return 0;
-        }
-        close();
-        return MQTT_ERROR_SOCKET_ERROR;
+        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
     }
     if (kind_ == Kind::Plain && plain_conn_) {
         auto result = plain_conn_->tx(data, size);
@@ -65,11 +58,7 @@ int MqttTransport::send(const uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        if (err == http::Error::Timeout) {
-            return 0;
-        }
-        close();
-        return MQTT_ERROR_SOCKET_ERROR;
+        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
     }
     return MQTT_ERROR_SOCKET_ERROR;
 }
@@ -81,11 +70,7 @@ int MqttTransport::recv(uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        if (err == http::Error::Timeout) {
-            return 0;
-        }
-        close();
-        return MQTT_ERROR_SOCKET_ERROR;
+        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
     }
     if (kind_ == Kind::Plain && plain_conn_) {
         auto result = plain_conn_->rx(data, size, false);
@@ -93,11 +78,7 @@ int MqttTransport::recv(uint8_t *data, size_t size) {
             return static_cast<int>(*amt);
         }
         auto err = std::get<http::Error>(result);
-        if (err == http::Error::Timeout) {
-            return 0;
-        }
-        close();
-        return MQTT_ERROR_SOCKET_ERROR;
+        return err == http::Error::Timeout ? 0 : MQTT_ERROR_SOCKET_ERROR;
     }
     return MQTT_ERROR_SOCKET_ERROR;
 }

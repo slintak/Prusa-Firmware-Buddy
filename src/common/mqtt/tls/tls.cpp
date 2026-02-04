@@ -3,15 +3,12 @@
 #include <string.h>
 #include <stdbool.h>
 #include <memory>
-#include <cstdio>
 
 #include <logging/log.hpp>
 #include <unique_file_ptr.hpp>
 #include <common/heap.h>
 #include <common/conserve_cpu.hpp>
-
-#include <mbedtls/sha256.h>
-#include <mbedtls/x509_crt.h>
+#include <common/http/proxy.hpp>
 
 #include <lwip/mem.h>
 
@@ -64,50 +61,12 @@ struct InitContexts {
     }
 };
 
-void bytes_to_hex(const uint8_t *data, size_t size, char *out, size_t out_len) {
-    static constexpr char kHex[] = "0123456789abcdef";
-    if (out_len == 0) {
-        return;
-    }
-    size_t i = 0;
-    for (; i < size && (i * 2 + 1) < out_len; ++i) {
-        out[i * 2] = kHex[(data[i] >> 4) & 0x0f];
-        out[i * 2 + 1] = kHex[data[i] & 0x0f];
-    }
-    if (i * 2 < out_len) {
-        out[i * 2] = '\0';
-    } else {
-        out[out_len - 1] = '\0';
-    }
-}
-
-void log_cert_fingerprint(const char *label, const uint8_t *data, size_t size) {
-    uint8_t digest[32] = {};
-    if (mbedtls_sha256_ret(data, size, digest, 0) != 0) {
-        log_info(mqtt, "%s sha256=<error>", label);
-        return;
-    }
-    char hex[65] = {};
-    bytes_to_hex(digest, sizeof(digest), hex, sizeof(hex));
-    log_info(mqtt, "%s sha256=%s size=%u", label, hex, static_cast<unsigned>(size));
-}
-
-void log_verify_flags(uint32_t flags) {
-    if (flags == 0) {
-        log_info(mqtt, "tls_verify_flags=0x0");
-        return;
-    }
-    char info[256] = {};
-    mbedtls_x509_crt_verify_info(info, sizeof(info), "", flags);
-    log_info(mqtt, "tls_verify_flags=0x%08x (%s)", static_cast<unsigned>(flags), info);
-}
-
 } // namespace
 
 namespace buddy::mqtt {
 
 tls::tls(uint8_t timeout_s, bool custom_cert)
-    : Connection(timeout_s)
+    : http::Connection(timeout_s)
     , net_context(timeout_s)
     , custom_cert(custom_cert) {
     mbedtls_net_init(&net_context);
@@ -168,12 +127,9 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         // code size).
         //
         // TODO: Unify the path somewhere
-        const char *cert_path = "/internal/connect/connect.der";
-        log_info(mqtt, "custom_cert=true path=%s", cert_path);
-        unique_file_ptr cert(fopen(cert_path, "rb"));
+        unique_file_ptr cert(fopen("/internal/connect/connect.der", "rb"));
         if (!cert) {
             // Missing cert
-            log_info(mqtt, "custom_cert missing");
             return Error::Tls;
         }
 
@@ -193,33 +149,15 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
             return Error::InternalError;
         }
 
-        size_t read = fread(der_buffer.get(), 1, fsize, cert.get());
-        if (read != static_cast<size_t>(fsize) || ferror(cert.get())) {
-            log_info(mqtt, "custom_cert read failed: read=%u expected=%u", static_cast<unsigned>(read),
-                static_cast<unsigned>(fsize));
-            return Error::InternalError;
-        }
-
-        log_cert_fingerprint("custom_ca", static_cast<const uint8_t *>(der_buffer.get()), fsize);
-        status = mbedtls_x509_crt_parse_der_nocopy(
-            &ctxs.x509_certificate,
-            static_cast<const uint8_t *>(der_buffer.get()),
-            fsize);
-        if (status != 0) {
+        if (mbedtls_x509_crt_parse_der_nocopy(&ctxs.x509_certificate, static_cast<const uint8_t *>(der_buffer.get()), fsize) != 0) {
             // Wrong file content
-            log_info(mqtt, "custom_cert parse failed: %d (0x%x)", status, static_cast<unsigned>(-status));
             return Error::Tls;
         }
     } else {
-        size_t idx = 0;
         for (const auto &cert : certificates) {
-            char label[24] = {};
-            snprintf(label, sizeof(label), "builtin_ca[%u]", static_cast<unsigned>(idx));
-            log_cert_fingerprint(label, cert.data(), cert.size());
             if ((status = mbedtls_x509_crt_parse_der_nocopy(&ctxs.x509_certificate, cert.data(), cert.size())) != 0) {
                 return Error::InternalError;
             }
-            ++idx;
         }
     }
     log_debug(mqtt, "Loaded certs");
@@ -259,16 +197,14 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
 
     // Really a pointer compare, not strcmp.
     if (destination_host != connection_host || destination_port != connection_port) {
-        log_info(mqtt, "proxy connect not supported");
-        return Error::Proxy;
+        // We are using a proxy to do the connection. Ask it to tunnel it through before initiating the encryption.
+        const auto err = http::proxy_connect(net_context.plain_conn, destination_host, destination_port);
+        if (err.has_value()) {
+            return err.value();
+        }
     }
 
-    while (true) {
-        net_context.timeout_happened = false;
-        status = mbedtls_ssl_handshake(&ssl_context);
-        if (status == 0) {
-            break;
-        }
+    while ((status = mbedtls_ssl_handshake(&ssl_context)) != 0) {
         if (status != MBEDTLS_ERR_SSL_WANT_READ && status != MBEDTLS_ERR_SSL_WANT_WRITE) {
             log_info(mqtt, "ssl handshake failed with: %d", status);
             return Error::Tls;
@@ -286,15 +222,7 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         }
     }
 
-    if (const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&ssl_context); peer != nullptr) {
-        log_cert_fingerprint("server_cert", peer->raw.p, peer->raw.len);
-    } else {
-        log_info(mqtt, "server_cert missing");
-    }
-
-    const uint32_t verify_flags = mbedtls_ssl_get_verify_result(&ssl_context);
-    log_verify_flags(verify_flags);
-    if (verify_flags != 0) {
+    if ((status = mbedtls_ssl_get_verify_result(&ssl_context)) != 0) {
         log_info(mqtt, "SSL error");
         return Error::Tls;
     }
@@ -304,14 +232,9 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
     return std::nullopt;
 }
 
-void tls::set_io_timeout_s(uint8_t timeout_s) {
-    net_context.plain_conn.set_timeout_s(timeout_s);
-}
-
 std::variant<size_t, Error> tls::tx(const uint8_t *send_buffer, size_t data_len) {
     size_t bytes_sent = 0;
 
-    net_context.timeout_happened = false;
     int status = mbedtls_ssl_write(&ssl_context, (const unsigned char *)send_buffer, data_len);
 
     if (status <= 0) {
@@ -333,7 +256,6 @@ std::variant<size_t, Error> tls::rx(uint8_t *read_buffer, size_t buffer_len, [[m
     assert(!nonblock);
     size_t bytes_received = 0;
 
-    net_context.timeout_happened = false;
     int status = mbedtls_ssl_read(&ssl_context, (unsigned char *)read_buffer, buffer_len);
 
     if (status <= 0) {

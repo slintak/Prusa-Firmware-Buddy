@@ -5,7 +5,4 @@ target_sources(
           hostname.cpp
           run.cpp
           log_component.cpp
-          tls/hardware_rng.cpp
-          tls/net_sockets.cpp
-          tls/tls.cpp
   )

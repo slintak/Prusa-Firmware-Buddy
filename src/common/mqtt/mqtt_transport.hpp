@@ -1,7 +1,7 @@
 #pragma once
 
 #include <common/mqtt/mqtt_client.hpp>
-#include <common/mqtt/socket.hpp>
+#include <common/http/socket.hpp>
 
 #include "tls/tls.hpp"
 
@@ -26,7 +26,7 @@ private:
 
     Kind kind_ = Kind::None;
     std::unique_ptr<tls> tls_conn_;
-    std::unique_ptr<buddy::mqtt::socket_con> plain_conn_;
+    std::unique_ptr<http::socket_con> plain_conn_;
 };
 
 } // namespace buddy::mqtt

@@ -20,7 +20,9 @@ constexpr uint16_t DEFAULT_PORT_PLAIN = 1883;
 constexpr uint16_t DEFAULT_PORT_TLS = 8883;
 } // namespace
 
-Client::Client() = default;
+Client::Client(buddy::mqtt::Client &mqtt_client)
+    : mqtt_client_(mqtt_client) {
+}
 
 void Client::run() {
     for (;;) {
