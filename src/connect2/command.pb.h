@@ -13,7 +13,12 @@
 typedef enum _Command_Type {
     Command_Type_UNKNOWN = 0,
     Command_Type_SEND_INFO = 1,
-    Command_Type_SEND_FILE_INFO = 2
+    Command_Type_SEND_FILE_INFO = 2,
+    Command_Type_SEND_JOB_INFO = 7,
+    Command_Type_START_PRINT = 3,
+    Command_Type_STOP_PRINT = 4,
+    Command_Type_PAUSE_PRINT = 5,
+    Command_Type_RESUME_PRINT = 6
 } Command_Type;
 
 /* Struct definitions */
@@ -21,6 +26,7 @@ typedef struct _Command {
     Command_Type type;
     uint32_t command_id;
     char path[105];
+    uint32_t job_id;
 } Command;
 
 
@@ -30,26 +36,28 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _Command_Type_MIN Command_Type_UNKNOWN
-#define _Command_Type_MAX Command_Type_SEND_FILE_INFO
-#define _Command_Type_ARRAYSIZE ((Command_Type)(Command_Type_SEND_FILE_INFO+1))
+#define _Command_Type_MAX Command_Type_SEND_JOB_INFO
+#define _Command_Type_ARRAYSIZE ((Command_Type)(Command_Type_SEND_JOB_INFO+1))
 
 #define Command_type_ENUMTYPE Command_Type
 
 
 /* Initializer values for message structs */
-#define Command_init_default                     {_Command_Type_MIN, 0, ""}
-#define Command_init_zero                        {_Command_Type_MIN, 0, ""}
+#define Command_init_default                     {_Command_Type_MIN, 0, "", 0}
+#define Command_init_zero                        {_Command_Type_MIN, 0, "", 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define Command_type_tag                         1
 #define Command_command_id_tag                   2
 #define Command_path_tag                         3
+#define Command_job_id_tag                       4
 
 /* Struct field encoding specification for nanopb */
 #define Command_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UENUM,    type,              1) \
 X(a, STATIC,   SINGULAR, UINT32,   command_id,        2) \
-X(a, STATIC,   SINGULAR, STRING,   path,              3)
+X(a, STATIC,   SINGULAR, STRING,   path,              3) \
+X(a, STATIC,   SINGULAR, UINT32,   job_id,            4)
 #define Command_CALLBACK NULL
 #define Command_DEFAULT NULL
 
@@ -60,7 +68,7 @@ extern const pb_msgdesc_t Command_msg;
 
 /* Maximum encoded size of messages (where known) */
 #define COMMAND_PB_H_MAX_SIZE                    Command_size
-#define Command_size                             114
+#define Command_size                             120
 
 #ifdef __cplusplus
 } /* extern "C" */

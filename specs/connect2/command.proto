@@ -5,9 +5,15 @@ message Command {
     UNKNOWN = 0;
     SEND_INFO = 1;
     SEND_FILE_INFO = 2;
+    SEND_JOB_INFO = 7;
+    START_PRINT = 3;
+    STOP_PRINT = 4;
+    PAUSE_PRINT = 5;
+    RESUME_PRINT = 6;
   }
 
   Type type = 1;
   uint32 command_id = 2;
   string path = 3;
+  uint32 job_id = 4;
 }

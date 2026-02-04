@@ -26,11 +26,27 @@ DecodedCommand decode_command(const uint8_t *payload, size_t payload_len) {
     case Command_Type_SEND_FILE_INFO:
         decoded.type = CommandType::SendFileInfo;
         break;
+    case Command_Type_SEND_JOB_INFO:
+        decoded.type = CommandType::SendJobInfo;
+        break;
+    case Command_Type_START_PRINT:
+        decoded.type = CommandType::StartPrint;
+        break;
+    case Command_Type_STOP_PRINT:
+        decoded.type = CommandType::StopPrint;
+        break;
+    case Command_Type_PAUSE_PRINT:
+        decoded.type = CommandType::PausePrint;
+        break;
+    case Command_Type_RESUME_PRINT:
+        decoded.type = CommandType::ResumePrint;
+        break;
     default:
         decoded.type = CommandType::Unknown;
         break;
     }
     decoded.command_id = msg.command_id;
+    decoded.job_id = msg.job_id;
     if (msg.path[0] != '\0') {
         std::snprintf(decoded.path, sizeof(decoded.path), "%s", msg.path);
     }

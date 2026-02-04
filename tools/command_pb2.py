@@ -14,7 +14,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rcommand.proto\"\x80\x01\n\x07\x43ommand\x12\x1b\n\x04type\x18\x01 \x01(\x0e\x32\r.Command.Type\x12\x12\n\ncommand_id\x18\x02 \x01(\r\x12\x0c\n\x04path\x18\x03 \x01(\t\"6\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\r\n\tSEND_INFO\x10\x01\x12\x12\n\x0eSEND_FILE_INFO\x10\x02\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\rcommand.proto\"\xe8\x01\n\x07\x43ommand\x12\x1b\n\x04type\x18\x01 \x01(\x0e\x32\r.Command.Type\x12\x12\n\ncommand_id\x18\x02 \x01(\r\x12\x0c\n\x04path\x18\x03 \x01(\t\x12\x0e\n\x06job_id\x18\x04 \x01(\r\"\x8d\x01\n\x04Type\x12\x0b\n\x07UNKNOWN\x10\x00\x12\r\n\tSEND_INFO\x10\x01\x12\x12\n\x0eSEND_FILE_INFO\x10\x02\x12\x11\n\rSEND_JOB_INFO\x10\x07\x12\x0f\n\x0bSTART_PRINT\x10\x03\x12\x0e\n\nSTOP_PRINT\x10\x04\x12\x0f\n\x0bPAUSE_PRINT\x10\x05\x12\x10\n\x0cRESUME_PRINT\x10\x06\x62\x06proto3')
 
 
 
@@ -31,7 +31,7 @@ if _descriptor._USE_C_DESCRIPTORS == False:
 
   DESCRIPTOR._options = None
   _COMMAND._serialized_start=18
-  _COMMAND._serialized_end=146
-  _COMMAND_TYPE._serialized_start=92
-  _COMMAND_TYPE._serialized_end=146
+  _COMMAND._serialized_end=250
+  _COMMAND_TYPE._serialized_start=109
+  _COMMAND_TYPE._serialized_end=250
 # @@protoc_insertion_point(module_scope)
