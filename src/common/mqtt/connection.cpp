@@ -4,20 +4,15 @@ using std::get;
 using std::holds_alternative;
 using std::nullopt;
 using std::optional;
-using http::Error;
 
-namespace buddy::mqtt {
+namespace http {
 
 Connection::Connection(uint8_t timeout_s)
     : timeout_s(timeout_s) {}
 
 uint8_t Connection::get_timeout_s() const { return timeout_s; }
 
-void Connection::set_timeout_s(uint8_t timeout) {
-    timeout_s = timeout;
-}
-
-optional<http::Error> Connection::tx_all(const uint8_t *data, size_t size) {
+optional<Error> Connection::tx_all(const uint8_t *data, size_t size) {
     while (size > 0) {
         auto res = tx(data, size);
 
@@ -33,7 +28,7 @@ optional<http::Error> Connection::tx_all(const uint8_t *data, size_t size) {
     return nullopt;
 }
 
-optional<http::Error> Connection::rx_exact(uint8_t *data, size_t size) {
+optional<Error> Connection::rx_exact(uint8_t *data, size_t size) {
     while (size > 0) {
         auto res = rx(data, size, false);
 
@@ -53,4 +48,4 @@ optional<http::Error> Connection::rx_exact(uint8_t *data, size_t size) {
     return nullopt;
 }
 
-} // namespace buddy::mqtt
+} // namespace http
