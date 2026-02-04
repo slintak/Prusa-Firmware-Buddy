@@ -25,3 +25,4 @@ __pycache__
 /src/**/*.mo
 *.pb.c
 *.pb.h
+*_pb2.py
