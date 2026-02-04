@@ -23,3 +23,5 @@ __pycache__
 *.egg
 /heap_instrumentation.txt
 /src/**/*.mo
+*.pb.c
+*.pb.h
