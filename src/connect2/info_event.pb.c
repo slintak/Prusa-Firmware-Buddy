@@ -27,4 +27,25 @@ PB_BIND(Enclosure, Enclosure, 2)
 PB_BIND(Mmu, Mmu, AUTO)
 
 
+PB_BIND(FileEntry, FileEntry, AUTO)
+
+
+PB_BIND(FileInfo, FileInfo, 2)
+
+
+PB_BIND(FileChanged, FileChanged, 2)
+
+
+PB_BIND(Rejected, Rejected, AUTO)
+
+
+PB_BIND(FileInfoEvent, FileInfoEvent, 2)
+
+
+PB_BIND(FileChangedEvent, FileChangedEvent, 2)
+
+
+PB_BIND(RejectedEvent, RejectedEvent, AUTO)
+
+
 

@@ -9,6 +9,14 @@
 
 #include <pb_encode.h>
 
+#include <transfers/changed_path.hpp>
+#include <common/filepath_operation.h>
+#include <common/filename_type.hpp>
+#include <common/lfn.h>
+#include <common/mutable_path.hpp>
+#include <unique_dir_ptr.hpp>
+#include <gui/file_list_defs.h>
+
 #include "info_event.pb.h"
 
 #include <option/has_chamber_filtration_api.h>
@@ -18,6 +26,8 @@
 
 #include <cstring>
 #include <cstdio>
+#include <dirent.h>
+#include <sys/stat.h>
 
 namespace connect2_client {
 
@@ -34,12 +44,66 @@ void set_str(char *dst, size_t dst_size, const char *src) {
     snprintf(dst, dst_size, "%s", src);
 }
 
+bool path_allowed(const char *path) {
+    constexpr const char *const usb = "/usb/";
+    const bool is_on_usb = strncmp(path, usb, strlen(usb)) == 0 || strcmp(path, "/usb") == 0;
+    const bool contains_upper = strstr(path, "/../") != nullptr;
+    return is_on_usb && !contains_upper;
+}
+
+std::optional<off_t> child_size(const char *base_path, const char *child_name) {
+    char path_buf[FILE_PATH_BUFFER_LEN];
+    int formatted = snprintf(path_buf, sizeof(path_buf), "%s/%s", base_path, child_name);
+    if (formatted >= FILE_NAME_BUFFER_LEN) {
+        return {};
+    }
+    struct stat st = {};
+    if (stat(path_buf, &st) == 0) {
+        return st.st_size;
+    }
+    return {};
+}
+
+void get_display_name_from_path(const char *sfn_path, char *out, size_t out_size) {
+    if (out_size == 0) {
+        return;
+    }
+    char path_buf[FILE_PATH_BUFFER_LEN] = {};
+    snprintf(path_buf, sizeof(path_buf), "%s", sfn_path);
+    get_LFN(out, out_size, path_buf);
+    if (out[0] == '\0') {
+        set_str(out, out_size, basename_b(sfn_path));
+    }
+}
+
+bool fill_file_entry_from_dirent(const char *base_path, struct dirent *ent, FileEntry &entry) {
+    if (const char *lfn = dirent_lfn(ent); lfn && lfn[0] == '.') {
+        return false;
+    }
+
+    std::optional<off_t> size = child_size(base_path, ent->d_name);
+    const bool read_only = false;
+
+    set_str(entry.name, sizeof(entry.name), ent->d_name);
+    set_str(entry.display_name, sizeof(entry.display_name), dirent_lfn(ent));
+    entry.size = size.value_or(0);
+#ifdef UNITTESTS
+    entry.m_timestamp = 0;
+#else
+    entry.m_timestamp = ent->time;
+#endif
+    entry.read_only = read_only;
+    set_str(entry.type, sizeof(entry.type), file_type(ent));
+    return true;
+}
+
 } // namespace
 
 bool encode_info_event(uint8_t *buffer, size_t buffer_size,
     const connect_client::Printer &printer,
     const connect_client::Printer::Params &params,
-    size_t &out_size) {
+    size_t &out_size,
+    uint32_t command_id) {
     InfoEvent msg = InfoEvent_init_zero;
 
     set_str(msg.event, sizeof(msg.event), "INFO");
@@ -47,6 +111,7 @@ bool encode_info_event(uint8_t *buffer, size_t buffer_size,
     if (params.state.dialog.has_value()) {
         msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
     }
+    msg.command_id = command_id;
 
     msg.has_data = true;
     InfoData &data = msg.data;
@@ -154,6 +219,172 @@ bool encode_info_event(uint8_t *buffer, size_t buffer_size,
 
     pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
     if (!pb_encode(&stream, InfoEvent_fields, &msg)) {
+        return false;
+    }
+    out_size = stream.bytes_written;
+    return true;
+}
+
+bool encode_file_info_event(uint8_t *buffer, size_t buffer_size,
+    const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params,
+    const char *path,
+    size_t &out_size,
+    uint32_t command_id) {
+    (void)printer;
+    if (path == nullptr || path[0] == '\0' || !path_allowed(path)) {
+        return false;
+    }
+
+    char sfn_path[FILE_PATH_BUFFER_LEN] = {};
+    snprintf(sfn_path, sizeof(sfn_path), "%s", path);
+    get_SFN_path(sfn_path);
+
+    struct stat st = {};
+    bool has_stat = false;
+    bool read_only = false;
+    bool is_dir = false;
+
+    if (stat(sfn_path, &st) == 0) {
+        has_stat = true;
+    }
+
+    unique_dir_ptr dir(opendir(sfn_path));
+    if (dir.get() != nullptr) {
+        is_dir = true;
+    } else if (!has_stat) {
+        return false;
+    }
+
+    FileInfoEvent msg = FileInfoEvent_init_zero;
+    set_str(msg.event, sizeof(msg.event), "FILE_INFO");
+    set_str(msg.state, sizeof(msg.state), printer_state::to_str(params.state.device_state));
+    if (params.state.dialog.has_value()) {
+        msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+    }
+    msg.command_id = command_id;
+    msg.has_file_info = true;
+    FileInfo &fi = msg.file_info;
+
+    set_str(fi.path, sizeof(fi.path), sfn_path);
+    get_display_name_from_path(sfn_path, fi.display_name, sizeof(fi.display_name));
+    set_str(fi.type, sizeof(fi.type), is_dir ? "FOLDER" : file_type_by_ext(sfn_path));
+    fi.read_only = read_only;
+    if (has_stat) {
+        fi.size = st.st_size;
+        fi.m_timestamp = st.st_mtime;
+    }
+
+    fi.children_count = 0;
+    fi.file_count = 0;
+    if (is_dir) {
+        struct dirent *ent = nullptr;
+        while (dir.get() && (ent = readdir(dir.get())) != nullptr) {
+            fi.file_count++;
+            const size_t max_children = sizeof(fi.children) / sizeof(fi.children[0]);
+            // NOTE: protobuf response is capped (currently 8 entries via nanopb max_count).
+            // If we need full listings like src/connect JSON, emit paged/streamed FILE_INFO
+            // events (page index + more flag) instead of a single large message.
+            if (fi.children_count >= max_children) {
+                continue;
+            }
+            FileEntry &entry = fi.children[fi.children_count];
+            if (fill_file_entry_from_dirent(sfn_path, ent, entry)) {
+                fi.children_count++;
+            }
+        }
+    }
+
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+    if (!pb_encode(&stream, FileInfoEvent_fields, &msg)) {
+        return false;
+    }
+    out_size = stream.bytes_written;
+    return true;
+}
+
+bool encode_file_changed_event(uint8_t *buffer, size_t buffer_size,
+    const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params,
+    const char *path,
+    bool is_file,
+    int incident,
+    size_t &out_size,
+    uint32_t command_id) {
+    (void)printer;
+    if (path == nullptr || path[0] == '\0' || !path_allowed(path)) {
+        return false;
+    }
+
+    char sfn_path[FILE_PATH_BUFFER_LEN] = {};
+    snprintf(sfn_path, sizeof(sfn_path), "%s", path);
+    get_SFN_path(sfn_path);
+
+    FileChangedEvent msg = FileChangedEvent_init_zero;
+    set_str(msg.event, sizeof(msg.event), "FILE_CHANGED");
+    set_str(msg.state, sizeof(msg.state), printer_state::to_str(params.state.device_state));
+    if (params.state.dialog.has_value()) {
+        msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+    }
+    msg.command_id = command_id;
+    msg.has_file_changed = true;
+    FileChanged &fc = msg.file_changed;
+    fc.has_file = true;
+
+    if (params.has_usb) {
+        fc.free_space = params.usb_space_free;
+    }
+    const auto incident_enum = static_cast<transfers::ChangedPath::Incident>(incident);
+    if (incident_enum == transfers::ChangedPath::Incident::Created) {
+        set_str(fc.new_path, sizeof(fc.new_path), sfn_path);
+    } else if (incident_enum == transfers::ChangedPath::Incident::Deleted) {
+        set_str(fc.old_path, sizeof(fc.old_path), sfn_path);
+    } else {
+        set_str(fc.new_path, sizeof(fc.new_path), sfn_path);
+        fc.rescan = true;
+    }
+
+    FileEntry &entry = fc.file;
+    set_str(entry.name, sizeof(entry.name), basename_b(sfn_path));
+    get_display_name_from_path(sfn_path, entry.display_name, sizeof(entry.display_name));
+    set_str(entry.type, sizeof(entry.type), is_file ? file_type_by_ext(sfn_path) : "FOLDER");
+    struct stat st = {};
+    if (stat(sfn_path, &st) == 0) {
+        entry.size = st.st_size;
+        entry.m_timestamp = st.st_mtime;
+    }
+
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+    if (!pb_encode(&stream, FileChangedEvent_fields, &msg)) {
+        return false;
+    }
+    out_size = stream.bytes_written;
+    return true;
+}
+
+bool encode_rejected_event(uint8_t *buffer, size_t buffer_size,
+    const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params,
+    const char *reason,
+    size_t &out_size,
+    uint32_t command_id) {
+    (void)printer;
+    if (reason == nullptr || reason[0] == '\0') {
+        return false;
+    }
+
+    RejectedEvent msg = RejectedEvent_init_zero;
+    set_str(msg.event, sizeof(msg.event), "REJECTED");
+    set_str(msg.state, sizeof(msg.state), printer_state::to_str(params.state.device_state));
+    if (params.state.dialog.has_value()) {
+        msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+    }
+    msg.command_id = command_id;
+    msg.has_rejected = true;
+    set_str(msg.rejected.reason, sizeof(msg.rejected.reason), reason);
+
+    pb_ostream_t stream = pb_ostream_from_buffer(buffer, buffer_size);
+    if (!pb_encode(&stream, RejectedEvent_fields, &msg)) {
         return false;
     }
     out_size = stream.bytes_written;

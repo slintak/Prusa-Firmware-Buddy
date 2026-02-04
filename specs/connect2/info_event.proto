@@ -4,7 +4,8 @@ message InfoEvent {
   string event = 1;
   string state = 2;
   uint32 dialog_id = 3;
-  InfoData data = 4;
+  uint32 command_id = 4;
+  InfoData data = 5;
 }
 
 message InfoData {
@@ -62,4 +63,60 @@ message Enclosure {
 message Mmu {
   bool enabled = 1;
   string version = 2;
+}
+
+message FileEntry {
+  string name = 1;
+  string display_name = 2;
+  uint64 size = 3;
+  uint64 m_timestamp = 4;
+  bool read_only = 5;
+  string type = 6;
+}
+
+message FileInfo {
+  string path = 1;
+  string display_name = 2;
+  string type = 3;
+  uint64 size = 4;
+  uint64 m_timestamp = 5;
+  bool read_only = 6;
+  repeated FileEntry children = 7;
+  uint32 file_count = 8;
+}
+
+message FileChanged {
+  uint64 free_space = 1;
+  string new_path = 2;
+  string old_path = 3;
+  bool rescan = 4;
+  FileEntry file = 5;
+}
+
+message Rejected {
+  string reason = 1;
+}
+
+message FileInfoEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  uint32 command_id = 4;
+  FileInfo file_info = 5;
+}
+
+message FileChangedEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  uint32 command_id = 4;
+  FileChanged file_changed = 5;
+}
+
+message RejectedEvent {
+  string event = 1;
+  string state = 2;
+  uint32 dialog_id = 3;
+  uint32 command_id = 4;
+  Rejected rejected = 5;
 }

@@ -3,10 +3,12 @@
 #include <cmsis_os.h>
 #include <common/timing.h>
 #include <cstring>
+#include <cstdio>
 #include <common/crc32.h>
 #include <netdev.h>
 #include <netif_settings.h>
 
+#include "command.hpp"
 #include <logging/log.hpp>
 
 LOG_COMPONENT_REF(connect2);
@@ -19,10 +21,12 @@ constexpr uint32_t CONFIG_REFRESH_MS = 10000;
 constexpr uint32_t CONNECT_TIMEOUT_MS = 60000;
 constexpr uint16_t DEFAULT_PORT_PLAIN = 1883;
 constexpr uint16_t DEFAULT_PORT_TLS = 8883;
+
 } // namespace
 
 Client::Client(buddy::mqtt::Client &mqtt_client)
     : mqtt_client_(mqtt_client) {
+    mqtt_client_.set_publish_callback(&Client::publish_callback, this);
 }
 
 void Client::run() {
@@ -45,6 +49,7 @@ void Client::step() {
         if (state_ != State::Disabled) {
             mqtt_client_.disconnect();
             telemetry_.reset();
+            subscribed_ = false;
             state_ = State::Disconnected;
             next_action_ms_ = 0;
         }
@@ -82,6 +87,7 @@ void Client::step() {
             state_ = State::Connected;
             next_action_ms_ = 0;
             backoff_.reset();
+            subscribed_ = false;
             return;
         }
         if (next_action_ms_ != 0 && ticks_diff(now, next_action_ms_) >= 0) {
@@ -93,7 +99,15 @@ void Client::step() {
         if (!mqtt_client_.is_connected()) {
             enter_backoff(now);
             telemetry_.reset();
+            subscribed_ = false;
             return;
+        }
+        if (!subscribed_ && ensure_command_topic()) {
+            bool ok = true;
+            ok = ok && mqtt_client_.subscribe(command_topic_, 1);
+            if (ok) {
+                subscribed_ = true;
+            }
         }
         telemetry_.tick(now, mqtt_client_);
         return;
@@ -135,6 +149,7 @@ void Client::refresh_config(uint32_t now_ms) {
     mqtt_client_.disconnect();
     telemetry_.reset();
     backoff_.reset();
+    subscribed_ = false;
     if (!cfg_.enabled || cfg_.host[0] == '\0') {
         state_ = State::Disabled;
         next_action_ms_ = 0;
@@ -147,6 +162,7 @@ void Client::refresh_config(uint32_t now_ms) {
 void Client::enter_backoff(uint32_t now_ms) {
     mqtt_client_.disconnect();
     telemetry_.reset();
+    subscribed_ = false;
     state_ = State::Backoff;
     next_action_ms_ = now_ms + backoff_.fail();
 }
@@ -175,6 +191,47 @@ bool Client::network_ready() {
         return addrs.addr_ip4.addr != 0;
     };
     return iface_ready(NETDEV_ETH_ID) || iface_ready(NETDEV_ESP_ID);
+}
+
+bool Client::ensure_command_topic() {
+    if (command_topic_[0] != '\0') {
+        return true;
+    }
+    if (!telemetry_.build_command_topic(command_topic_, sizeof(command_topic_))) {
+        return false;
+    }
+    command_topic_len_ = strlen(command_topic_);
+    return true;
+}
+
+void Client::handle_publish(const char *topic, size_t topic_len, const uint8_t *payload, size_t payload_len) {
+    if (!ensure_command_topic()) {
+        return;
+    }
+    if (topic_len != command_topic_len_) {
+        return;
+    }
+    if (memcmp(topic, command_topic_, topic_len) != 0) {
+        return;
+    }
+
+    const DecodedCommand cmd = decode_command(payload, payload_len);
+    if (cmd.type == CommandType::SendInfo) {
+        telemetry_.publish_info_now(mqtt_client_, cmd.command_id);
+    } else if (cmd.type == CommandType::SendFileInfo) {
+        if (cmd.path[0] != '\0') {
+            telemetry_.publish_file_info_now(mqtt_client_, cmd.path, cmd.command_id);
+        }
+    }
+}
+
+void Client::publish_callback(void *ctx, const char *topic, size_t topic_len,
+    const uint8_t *payload, size_t payload_len, uint8_t, bool, bool) {
+    auto *self = static_cast<Client *>(ctx);
+    if (self == nullptr) {
+        return;
+    }
+    self->handle_publish(topic, topic_len, payload, payload_len);
 }
 
 } // namespace connect2_client

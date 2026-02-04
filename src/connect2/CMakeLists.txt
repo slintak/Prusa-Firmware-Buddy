@@ -6,6 +6,10 @@ set(INFO_PROTO ${CMAKE_SOURCE_DIR}/specs/connect2/info_event.proto)
 set(INFO_PB_C ${CMAKE_CURRENT_SOURCE_DIR}/info_event.pb.c)
 set(INFO_PB_H ${CMAKE_CURRENT_SOURCE_DIR}/info_event.pb.h)
 set(INFO_OPTIONS ${CMAKE_SOURCE_DIR}/specs/connect2/info_event.options)
+set(COMMAND_PROTO ${CMAKE_SOURCE_DIR}/specs/connect2/command.proto)
+set(COMMAND_PB_C ${CMAKE_CURRENT_SOURCE_DIR}/command.pb.c)
+set(COMMAND_PB_H ${CMAKE_CURRENT_SOURCE_DIR}/command.pb.h)
+set(COMMAND_OPTIONS ${CMAKE_SOURCE_DIR}/specs/connect2/command.options)
 
 add_custom_command(
   OUTPUT ${INFO_PB_C} ${INFO_PB_H}
@@ -20,9 +24,23 @@ add_custom_command(
 
 add_custom_target(connect2_info_proto DEPENDS ${INFO_PB_C} ${INFO_PB_H})
 
+add_custom_command(
+  OUTPUT ${COMMAND_PB_C} ${COMMAND_PB_H}
+  COMMAND ${Python3_EXECUTABLE} ${NANOPB_GENERATOR}
+          -I ${CMAKE_SOURCE_DIR}/specs/connect2
+          -D ${CMAKE_CURRENT_SOURCE_DIR}
+          ${COMMAND_PROTO}
+  DEPENDS ${COMMAND_PROTO} ${COMMAND_OPTIONS}
+  COMMENT "Generating nanopb sources for command.proto"
+  VERBATIM
+)
+
+add_custom_target(connect2_command_proto DEPENDS ${COMMAND_PB_C} ${COMMAND_PB_H})
+
 target_sources(
   firmware
   PRIVATE client.cpp
+          command.cpp
           config.cpp
           hostname.cpp
           info_event.cpp
@@ -30,12 +48,13 @@ target_sources(
           run.cpp
           log_component.cpp
           ${INFO_PB_C}
+          ${COMMAND_PB_C}
           ${NANOPB_DIR}/pb_encode.c
           ${NANOPB_DIR}/pb_decode.c
           ${NANOPB_DIR}/pb_common.c
   )
 
-add_dependencies(firmware connect2_info_proto)
+add_dependencies(firmware connect2_info_proto connect2_command_proto)
 target_include_directories(firmware PRIVATE ${NANOPB_DIR})
 
 # TEMP: Reuse selected Connect sources for telemetry/Marlin integration.

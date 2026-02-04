@@ -5,6 +5,7 @@
 
 #include <connect/changes.hpp>
 #include <connect/printer_common.hpp>
+#include <connect/marlin_printer.hpp>
 
 namespace buddy::mqtt {
 class Client;
@@ -12,12 +13,19 @@ class Client;
 
 namespace connect2_client {
 
+connect_client::MarlinPrinter &shared_printer();
+
 class Telemetry {
 public:
     Telemetry();
     void reset();
     void tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client);
     bool build_online_topic(char *buffer, size_t buffer_size) const;
+    bool build_command_topic(char *buffer, size_t buffer_size) const;
+    void publish_info_now(buddy::mqtt::Client &mqtt_client, uint32_t command_id);
+    void publish_file_info_now(buddy::mqtt::Client &mqtt_client, const char *path, uint32_t command_id);
+    void publish_rejected_now(buddy::mqtt::Client &mqtt_client, const connect_client::Printer &printer,
+        const connect_client::Printer::Params &params, const char *reason, uint32_t command_id);
 
 private:
     struct LastTelemetry {
@@ -53,6 +61,15 @@ private:
     void publish_telemetry(const connect_client::Printer::Params &params, bool full,
         bool force_baseline, bool force_full, buddy::mqtt::Client &mqtt_client);
     void publish_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, uint32_t command_id);
+    void publish_file_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, const char *path, uint32_t command_id);
+    void publish_file_changed_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, const char *path, bool is_file, int incident, uint32_t command_id);
+    void publish_rejected_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+        buddy::mqtt::Client &mqtt_client, const char *reason, uint32_t command_id);
+    // transfer events removed for now
+    void process_changed_paths(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
         buddy::mqtt::Client &mqtt_client);
 
     bool online_published_ = false;

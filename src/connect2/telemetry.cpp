@@ -8,6 +8,8 @@
 
 #include <common/mqtt/mqtt_client.hpp>
 #include "info_event.hpp"
+#include <transfers/changed_path.hpp>
+#include <gui/file_list_defs.h>
 
 #include <cmath>
 #include <cstdio>
@@ -19,16 +21,16 @@ extern "C" {
 
 namespace connect2_client {
 
+connect_client::MarlinPrinter &shared_printer() {
+    static connect_client::MarlinPrinter instance;
+    return instance;
+}
+
 namespace {
 constexpr uint32_t TELEMETRY_INTERVAL_MIN = 750;
 constexpr uint32_t TELEMETRY_INTERVAL_LONG = 1000 * 4;
 constexpr uint32_t TELEMETRY_INTERVAL_SHORT = 1000;
 constexpr uint32_t TELEMETRY_INTERVAL_FULL = 1000 * 60 * 5;
-
-connect_client::MarlinPrinter &printer() {
-    static connect_client::MarlinPrinter instance;
-    return instance;
-}
 
 bool float_changed(float old_value, float new_value) {
     return std::fabs(old_value - new_value) > 0.01f;
@@ -74,9 +76,21 @@ bool make_dialog_topic(char *buffer, size_t buffer_size) {
     return written > 0 && static_cast<size_t>(written) < buffer_size;
 }
 
+bool make_command_topic(char *buffer, size_t buffer_size) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/cmd", printer_id());
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
 bool make_event_topic(char *buffer, size_t buffer_size) {
     const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/event", printer_id());
     return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
+bool path_allowed(const char *path) {
+    constexpr const char *const usb = "/usb/";
+    const bool is_on_usb = strncmp(path, usb, strlen(usb)) == 0 || strcmp(path, "/usb") == 0;
+    const bool contains_upper = strstr(path, "/../") != nullptr;
+    return is_on_usb && !contains_upper;
 }
 
 uint8_t publish_flags(uint8_t qos, bool retain) {
@@ -156,6 +170,10 @@ Telemetry::Telemetry() {
 
 bool Telemetry::build_online_topic(char *buffer, size_t buffer_size) const {
     return make_printer_topic(buffer, buffer_size, "/online");
+}
+
+bool Telemetry::build_command_topic(char *buffer, size_t buffer_size) const {
+    return make_command_topic(buffer, buffer_size);
 }
 
 void Telemetry::reset() {
@@ -300,7 +318,7 @@ void Telemetry::publish_telemetry(const connect_client::Printer::Params &params,
 }
 
 void Telemetry::publish_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
-    buddy::mqtt::Client &mqtt_client) {
+    buddy::mqtt::Client &mqtt_client, uint32_t command_id) {
     char topic[128];
     if (!make_event_topic(topic, sizeof(topic))) {
         return;
@@ -308,11 +326,110 @@ void Telemetry::publish_info_event(const connect_client::Printer &printer, const
 
     static uint8_t payload[2048];
     size_t payload_len = 0;
-    if (!encode_info_event(payload, sizeof(payload), printer, params, payload_len)) {
+    if (!encode_info_event(payload, sizeof(payload), printer, params, payload_len, command_id)) {
         return;
     }
 
     (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
+void Telemetry::publish_info_now(buddy::mqtt::Client &mqtt_client, uint32_t command_id) {
+    const auto &client_printer = shared_printer();
+    const auto params = client_printer.params();
+    publish_info_event(client_printer, params, mqtt_client, command_id);
+    info_changes_.set_hash(client_printer.info_fingerprint());
+    info_changes_.mark_clean();
+}
+
+void Telemetry::publish_file_info_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client, const char *path, uint32_t command_id) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[2048];
+    size_t payload_len = 0;
+    if (!encode_file_info_event(payload, sizeof(payload), printer, params, path, payload_len, command_id)) {
+        publish_rejected_event(printer, params, mqtt_client, "File not found", command_id);
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
+void Telemetry::publish_file_info_now(buddy::mqtt::Client &mqtt_client, const char *path, uint32_t command_id) {
+    const auto &client_printer = shared_printer();
+    const auto params = client_printer.params();
+    if (!path_allowed(path)) {
+        publish_rejected_event(client_printer, params, mqtt_client, "Forbidden path", command_id);
+        return;
+    }
+    publish_file_info_event(client_printer, params, mqtt_client, path, command_id);
+}
+
+void Telemetry::publish_file_changed_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client, const char *path, bool is_file, int incident, uint32_t command_id) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[2048];
+    size_t payload_len = 0;
+    if (!encode_file_changed_event(payload, sizeof(payload), printer, params, path, is_file, incident, payload_len, command_id)) {
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
+void Telemetry::publish_rejected_event(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client, const char *reason, uint32_t command_id) {
+    char topic[128];
+    if (!make_event_topic(topic, sizeof(topic))) {
+        return;
+    }
+
+    static uint8_t payload[1024];
+    size_t payload_len = 0;
+    if (!encode_rejected_event(payload, sizeof(payload), printer, params, reason, payload_len, command_id)) {
+        return;
+    }
+
+    (void)publish_topic_raw(mqtt_client, topic, payload, payload_len, 1, false);
+}
+
+void Telemetry::publish_rejected_now(buddy::mqtt::Client &mqtt_client, const connect_client::Printer &printer,
+    const connect_client::Printer::Params &params, const char *reason, uint32_t command_id) {
+    publish_rejected_event(printer, params, mqtt_client, reason, command_id);
+}
+
+void Telemetry::process_changed_paths(const connect_client::Printer &printer, const connect_client::Printer::Params &params,
+    buddy::mqtt::Client &mqtt_client) {
+    transfers::ChangedPath::instance.media_inserted(params.has_usb);
+    char path_buf[FILE_PATH_BUFFER_LEN + FILE_NAME_MAX_LEN] = {};
+    bool is_file = false;
+    int incident = 0;
+    uint32_t cmd_id = 0;
+    {
+        auto status = transfers::ChangedPath::instance.status();
+        if (!status.has_value()) {
+            return;
+        }
+        if (!status->consume(path_buf, sizeof(path_buf))) {
+            return;
+        }
+        is_file = status->is_file();
+        incident = static_cast<int>(status->what_happend());
+        cmd_id = status->triggered_command_id().value_or(0);
+    }
+
+    if (is_file && static_cast<transfers::ChangedPath::Incident>(incident) == transfers::ChangedPath::Incident::Created) {
+        publish_file_info_event(printer, params, mqtt_client, path_buf, cmd_id);
+    } else {
+        publish_file_changed_event(printer, params, mqtt_client, path_buf, is_file, incident, cmd_id);
+    }
 }
 
 void Telemetry::tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client) {
@@ -325,7 +442,7 @@ void Telemetry::tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client) {
         online_published_ = true;
     }
 
-    const auto &client_printer = printer();
+    const auto &client_printer = shared_printer();
     const bool printing = client_printer.is_printing();
     const auto params = client_printer.params();
 
@@ -342,9 +459,11 @@ void Telemetry::tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client) {
     }
 
     if (info_changes_.set_hash(client_printer.info_fingerprint())) {
-        publish_info_event(client_printer, params, mqtt_client);
+        publish_info_event(client_printer, params, mqtt_client, 0);
         info_changes_.mark_clean();
     }
+
+    process_changed_paths(client_printer, params, mqtt_client);
 }
 
 } // namespace connect2_client

@@ -77,9 +77,71 @@ typedef struct _InfoEvent {
     char event[17];
     char state[17];
     uint32_t dialog_id;
+    uint32_t command_id;
     bool has_data;
     InfoData data;
 } InfoEvent;
+
+typedef struct _FileEntry {
+    char name[65];
+    char display_name[65];
+    uint64_t size;
+    uint64_t m_timestamp;
+    bool read_only;
+    char type[9];
+} FileEntry;
+
+typedef struct _FileInfo {
+    char path[105];
+    char display_name[65];
+    char type[9];
+    uint64_t size;
+    uint64_t m_timestamp;
+    bool read_only;
+    pb_size_t children_count;
+    FileEntry children[8];
+    uint32_t file_count;
+} FileInfo;
+
+typedef struct _FileChanged {
+    uint64_t free_space;
+    char new_path[105];
+    char old_path[105];
+    bool rescan;
+    bool has_file;
+    FileEntry file;
+} FileChanged;
+
+typedef struct _Rejected {
+    char reason[65];
+} Rejected;
+
+typedef struct _FileInfoEvent {
+    char event[17];
+    char state[17];
+    uint32_t dialog_id;
+    uint32_t command_id;
+    bool has_file_info;
+    FileInfo file_info;
+} FileInfoEvent;
+
+typedef struct _FileChangedEvent {
+    char event[17];
+    char state[17];
+    uint32_t dialog_id;
+    uint32_t command_id;
+    bool has_file_changed;
+    FileChanged file_changed;
+} FileChangedEvent;
+
+typedef struct _RejectedEvent {
+    char event[17];
+    char state[17];
+    uint32_t dialog_id;
+    uint32_t command_id;
+    bool has_rejected;
+    Rejected rejected;
+} RejectedEvent;
 
 
 #ifdef __cplusplus
@@ -87,20 +149,34 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
-#define InfoEvent_init_default                   {"", "", 0, false, InfoData_init_default}
+#define InfoEvent_init_default                   {"", "", 0, 0, false, InfoData_init_default}
 #define InfoData_init_default                    {"", "", "", 0, "", 0, 0, "", 0, {Storage_init_default}, false, NetworkInfo_init_default, 0, {Tool_init_default, Tool_init_default, Tool_init_default, Tool_init_default, Tool_init_default}, false, Enclosure_init_default, false, Mmu_init_default, 0, 0}
 #define Storage_init_default                     {"", "", 0, 0, 0}
 #define NetworkInfo_init_default                 {"", "", "", "", "", ""}
 #define Tool_init_default                        {0, 0, 0, 0, ""}
 #define Enclosure_init_default                   {0, 0, 0, 0, 0, 0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define Mmu_init_default                         {0, ""}
-#define InfoEvent_init_zero                      {"", "", 0, false, InfoData_init_zero}
+#define FileEntry_init_default                   {"", "", 0, 0, 0, ""}
+#define FileInfo_init_default                    {"", "", "", 0, 0, 0, 0, {FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default, FileEntry_init_default}, 0}
+#define FileChanged_init_default                 {0, "", "", 0, false, FileEntry_init_default}
+#define Rejected_init_default                    {""}
+#define FileInfoEvent_init_default               {"", "", 0, 0, false, FileInfo_init_default}
+#define FileChangedEvent_init_default            {"", "", 0, 0, false, FileChanged_init_default}
+#define RejectedEvent_init_default               {"", "", 0, 0, false, Rejected_init_default}
+#define InfoEvent_init_zero                      {"", "", 0, 0, false, InfoData_init_zero}
 #define InfoData_init_zero                       {"", "", "", 0, "", 0, 0, "", 0, {Storage_init_zero}, false, NetworkInfo_init_zero, 0, {Tool_init_zero, Tool_init_zero, Tool_init_zero, Tool_init_zero, Tool_init_zero}, false, Enclosure_init_zero, false, Mmu_init_zero, 0, 0}
 #define Storage_init_zero                        {"", "", 0, 0, 0}
 #define NetworkInfo_init_zero                    {"", "", "", "", "", ""}
 #define Tool_init_zero                           {0, 0, 0, 0, ""}
 #define Enclosure_init_zero                      {0, 0, 0, 0, 0, 0, {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""}}
 #define Mmu_init_zero                            {0, ""}
+#define FileEntry_init_zero                      {"", "", 0, 0, 0, ""}
+#define FileInfo_init_zero                       {"", "", "", 0, 0, 0, 0, {FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero, FileEntry_init_zero}, 0}
+#define FileChanged_init_zero                    {0, "", "", 0, false, FileEntry_init_zero}
+#define Rejected_init_zero                       {""}
+#define FileInfoEvent_init_zero                  {"", "", 0, 0, false, FileInfo_init_zero}
+#define FileChangedEvent_init_zero               {"", "", 0, 0, false, FileChanged_init_zero}
+#define RejectedEvent_init_zero                  {"", "", 0, 0, false, Rejected_init_zero}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define Storage_mountpoint_tag                   1
@@ -145,14 +221,51 @@ extern "C" {
 #define InfoEvent_event_tag                      1
 #define InfoEvent_state_tag                      2
 #define InfoEvent_dialog_id_tag                  3
-#define InfoEvent_data_tag                       4
+#define InfoEvent_command_id_tag                 4
+#define InfoEvent_data_tag                       5
+#define FileEntry_name_tag                       1
+#define FileEntry_display_name_tag               2
+#define FileEntry_size_tag                       3
+#define FileEntry_m_timestamp_tag                4
+#define FileEntry_read_only_tag                  5
+#define FileEntry_type_tag                       6
+#define FileInfo_path_tag                        1
+#define FileInfo_display_name_tag                2
+#define FileInfo_type_tag                        3
+#define FileInfo_size_tag                        4
+#define FileInfo_m_timestamp_tag                 5
+#define FileInfo_read_only_tag                   6
+#define FileInfo_children_tag                    7
+#define FileInfo_file_count_tag                  8
+#define FileChanged_free_space_tag               1
+#define FileChanged_new_path_tag                 2
+#define FileChanged_old_path_tag                 3
+#define FileChanged_rescan_tag                   4
+#define FileChanged_file_tag                     5
+#define Rejected_reason_tag                      1
+#define FileInfoEvent_event_tag                  1
+#define FileInfoEvent_state_tag                  2
+#define FileInfoEvent_dialog_id_tag              3
+#define FileInfoEvent_command_id_tag             4
+#define FileInfoEvent_file_info_tag              5
+#define FileChangedEvent_event_tag               1
+#define FileChangedEvent_state_tag               2
+#define FileChangedEvent_dialog_id_tag           3
+#define FileChangedEvent_command_id_tag          4
+#define FileChangedEvent_file_changed_tag        5
+#define RejectedEvent_event_tag                  1
+#define RejectedEvent_state_tag                  2
+#define RejectedEvent_dialog_id_tag              3
+#define RejectedEvent_command_id_tag             4
+#define RejectedEvent_rejected_tag               5
 
 /* Struct field encoding specification for nanopb */
 #define InfoEvent_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, STRING,   event,             1) \
 X(a, STATIC,   SINGULAR, STRING,   state,             2) \
 X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  data,              4)
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  data,              5)
 #define InfoEvent_CALLBACK NULL
 #define InfoEvent_DEFAULT NULL
 #define InfoEvent_data_MSGTYPE InfoData
@@ -225,6 +338,74 @@ X(a, STATIC,   SINGULAR, STRING,   version,           2)
 #define Mmu_CALLBACK NULL
 #define Mmu_DEFAULT NULL
 
+#define FileEntry_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   name,              1) \
+X(a, STATIC,   SINGULAR, STRING,   display_name,      2) \
+X(a, STATIC,   SINGULAR, UINT64,   size,              3) \
+X(a, STATIC,   SINGULAR, UINT64,   m_timestamp,       4) \
+X(a, STATIC,   SINGULAR, BOOL,     read_only,         5) \
+X(a, STATIC,   SINGULAR, STRING,   type,              6)
+#define FileEntry_CALLBACK NULL
+#define FileEntry_DEFAULT NULL
+
+#define FileInfo_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   path,              1) \
+X(a, STATIC,   SINGULAR, STRING,   display_name,      2) \
+X(a, STATIC,   SINGULAR, STRING,   type,              3) \
+X(a, STATIC,   SINGULAR, UINT64,   size,              4) \
+X(a, STATIC,   SINGULAR, UINT64,   m_timestamp,       5) \
+X(a, STATIC,   SINGULAR, BOOL,     read_only,         6) \
+X(a, STATIC,   REPEATED, MESSAGE,  children,          7) \
+X(a, STATIC,   SINGULAR, UINT32,   file_count,        8)
+#define FileInfo_CALLBACK NULL
+#define FileInfo_DEFAULT NULL
+#define FileInfo_children_MSGTYPE FileEntry
+
+#define FileChanged_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT64,   free_space,        1) \
+X(a, STATIC,   SINGULAR, STRING,   new_path,          2) \
+X(a, STATIC,   SINGULAR, STRING,   old_path,          3) \
+X(a, STATIC,   SINGULAR, BOOL,     rescan,            4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  file,              5)
+#define FileChanged_CALLBACK NULL
+#define FileChanged_DEFAULT NULL
+#define FileChanged_file_MSGTYPE FileEntry
+
+#define Rejected_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   reason,            1)
+#define Rejected_CALLBACK NULL
+#define Rejected_DEFAULT NULL
+
+#define FileInfoEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   event,             1) \
+X(a, STATIC,   SINGULAR, STRING,   state,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  file_info,         5)
+#define FileInfoEvent_CALLBACK NULL
+#define FileInfoEvent_DEFAULT NULL
+#define FileInfoEvent_file_info_MSGTYPE FileInfo
+
+#define FileChangedEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   event,             1) \
+X(a, STATIC,   SINGULAR, STRING,   state,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  file_changed,      5)
+#define FileChangedEvent_CALLBACK NULL
+#define FileChangedEvent_DEFAULT NULL
+#define FileChangedEvent_file_changed_MSGTYPE FileChanged
+
+#define RejectedEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, STRING,   event,             1) \
+X(a, STATIC,   SINGULAR, STRING,   state,             2) \
+X(a, STATIC,   SINGULAR, UINT32,   dialog_id,         3) \
+X(a, STATIC,   SINGULAR, UINT32,   command_id,        4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  rejected,          5)
+#define RejectedEvent_CALLBACK NULL
+#define RejectedEvent_DEFAULT NULL
+#define RejectedEvent_rejected_MSGTYPE Rejected
+
 extern const pb_msgdesc_t InfoEvent_msg;
 extern const pb_msgdesc_t InfoData_msg;
 extern const pb_msgdesc_t Storage_msg;
@@ -232,6 +413,13 @@ extern const pb_msgdesc_t NetworkInfo_msg;
 extern const pb_msgdesc_t Tool_msg;
 extern const pb_msgdesc_t Enclosure_msg;
 extern const pb_msgdesc_t Mmu_msg;
+extern const pb_msgdesc_t FileEntry_msg;
+extern const pb_msgdesc_t FileInfo_msg;
+extern const pb_msgdesc_t FileChanged_msg;
+extern const pb_msgdesc_t Rejected_msg;
+extern const pb_msgdesc_t FileInfoEvent_msg;
+extern const pb_msgdesc_t FileChangedEvent_msg;
+extern const pb_msgdesc_t RejectedEvent_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define InfoEvent_fields &InfoEvent_msg
@@ -241,14 +429,28 @@ extern const pb_msgdesc_t Mmu_msg;
 #define Tool_fields &Tool_msg
 #define Enclosure_fields &Enclosure_msg
 #define Mmu_fields &Mmu_msg
+#define FileEntry_fields &FileEntry_msg
+#define FileInfo_fields &FileInfo_msg
+#define FileChanged_fields &FileChanged_msg
+#define Rejected_fields &Rejected_msg
+#define FileInfoEvent_fields &FileInfoEvent_msg
+#define FileChangedEvent_fields &FileChangedEvent_msg
+#define RejectedEvent_fields &RejectedEvent_msg
 
 /* Maximum encoded size of messages (where known) */
 #define Enclosure_size                           1106
+#define FileChangedEvent_size                    445
+#define FileChanged_size                         394
+#define FileEntry_size                           166
+#define FileInfoEvent_size                       1615
+#define FileInfo_size                            1564
 #define INFO_EVENT_PB_H_MAX_SIZE                 InfoEvent_size
 #define InfoData_size                            1652
-#define InfoEvent_size                           1697
+#define InfoEvent_size                           1703
 #define Mmu_size                                 20
 #define NetworkInfo_size                         132
+#define RejectedEvent_size                       116
+#define Rejected_size                            66
 #define Storage_size                             43
 #define Tool_size                                25
 

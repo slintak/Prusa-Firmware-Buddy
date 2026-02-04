@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+message Command {
+  enum Type {
+    UNKNOWN = 0;
+    SEND_INFO = 1;
+    SEND_FILE_INFO = 2;
+  }
+
+  Type type = 1;
+  uint32 command_id = 2;
+  string path = 3;
+}

@@ -25,3 +25,24 @@ Enclosure.filtration_filaments max_length: 32
 Enclosure.filtration_filaments max_count: 32
 
 Mmu.version max_length: 16
+
+FileEntry.name max_length: 64
+FileEntry.display_name max_length: 64
+FileEntry.type max_length: 8
+
+FileInfo.path max_length: 104
+FileInfo.display_name max_length: 64
+FileInfo.type max_length: 8
+FileInfo.children max_count: 8
+
+FileChanged.new_path max_length: 104
+FileChanged.old_path max_length: 104
+
+Rejected.reason max_length: 64
+
+FileInfoEvent.event max_length: 16
+FileInfoEvent.state max_length: 16
+FileChangedEvent.event max_length: 16
+FileChangedEvent.state max_length: 16
+RejectedEvent.event max_length: 16
+RejectedEvent.state max_length: 16

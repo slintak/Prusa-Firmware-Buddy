@@ -16,7 +16,8 @@ import sys
 def ensure_proto_module(proto_py, proto_src, include_dir):
     # Generate *_pb2.py at runtime if it is missing.
     if os.path.exists(proto_py):
-        return
+        if os.path.getmtime(proto_py) >= os.path.getmtime(proto_src):
+            return
     try:
         from grpc_tools import protoc  # type: ignore
     except Exception as exc:
@@ -89,19 +90,38 @@ def main() -> int:
 
     def on_message(_client, _userdata, msg):
         data = msg.payload
-        event = info_event_pb2.InfoEvent()
-        try:
-            event.ParseFromString(data)
-            # Convert protobuf to JSON-friendly dict for easy inspection.
-            decoded = MessageToDict(event, preserving_proto_field_name=True)
-            if args.pretty:
-                payload = json.dumps(decoded, ensure_ascii=False, indent=2, sort_keys=True)
-            else:
-                payload = json.dumps(decoded, ensure_ascii=False)
-            print(f"\n{msg.topic}\n{payload}")
-        except Exception:
-            print(f"\n{msg.topic}\n<decode failed> len={len(data)}")
-            print(hexdump(data))
+        decoders = [
+            ("InfoEvent", info_event_pb2.InfoEvent, "INFO", "data"),
+            ("FileInfoEvent", info_event_pb2.FileInfoEvent, "FILE_INFO", "file_info"),
+            ("FileChangedEvent", info_event_pb2.FileChangedEvent, "FILE_CHANGED", "file_changed"),
+            ("RejectedEvent", info_event_pb2.RejectedEvent, "REJECTED", "rejected"),
+        ]
+        # Try decoders in order; first one that matches the "event" field wins.
+        for name, cls, expected_event, expected_field in decoders:
+            event = cls()
+            try:
+                event.ParseFromString(data)
+                # Convert protobuf to JSON-friendly dict for easy inspection.
+                decoded = MessageToDict(event, preserving_proto_field_name=True)
+                if not isinstance(decoded, dict):
+                    continue
+                if decoded.get("event") != expected_event:
+                    continue
+                if expected_field not in decoded:
+                    continue
+                if args.pretty:
+                    payload = json.dumps(decoded, ensure_ascii=False, indent=2, sort_keys=True)
+                else:
+                    payload = json.dumps(decoded, ensure_ascii=False)
+                header = f"{name}"
+                if "command_id" in decoded:
+                    header += f" command_id={decoded.get('command_id')}"
+                print(f"\n{msg.topic}\n{header}\n{payload}")
+                return
+            except Exception:
+                continue
+        print(f"\n{msg.topic}\n<decode failed> len={len(data)}")
+        print(hexdump(data))
 
     client.on_connect = on_connect
     client.on_message = on_message
