@@ -15,10 +15,14 @@ public:
 
     Client();
     void set_config(const Config &cfg);
+    bool connect(const char *host, uint16_t port, bool tls, bool custom_cert);
+    void disconnect();
     void step();
+    bool is_connected() const;
 
 private:
     Config cfg_;
+    bool connected_ = false;
 };
 
 } // namespace buddy::mqtt
