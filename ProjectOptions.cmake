@@ -191,6 +191,17 @@ else()
 endif()
 define_boolean_option(BUDDY_ENABLE_CONNECT ${CONNECT})
 
+# Set connect2 status/availability (mutually exclusive with Connect)
+set(CONNECT2
+    "NO"
+    CACHE BOOL "Enable Connect2 (MQTT) client"
+    )
+define_boolean_option(BUDDY_ENABLE_CONNECT2 ${CONNECT2})
+
+if(CONNECT AND CONNECT2)
+  message(FATAL_ERROR "CONNECT and CONNECT2 cannot be enabled at the same time")
+endif()
+
 # Resolve BUILD_NUMBER and PROJECT_VERSION_* variables
 resolve_version_variables()
 
@@ -208,6 +219,7 @@ message(STATUS "MCU: ${MCU}")
 message(STATUS "Custom Compile Options (C/C++ flags): ${CUSTOM_COMPILE_OPTIONS}")
 message(STATUS "Web User Interface: ${WUI}")
 message(STATUS "Connect client: ${CONNECT}")
+message(STATUS "Connect2 client: ${CONNECT2}")
 message(STATUS "Resources: ${RESOURCES}")
 
 # Set printer features

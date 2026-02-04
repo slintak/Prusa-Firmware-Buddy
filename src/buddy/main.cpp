@@ -130,9 +130,7 @@ LOG_COMPONENT_REF(Buddy);
 
 osThreadId defaultTaskHandle;
 osThreadId displayTaskHandle;
-#if BUDDY_ENABLE_CONNECT()
 osThreadId connectTaskHandle;
-#endif
 #if BUDDY_ENABLE_CONNECT2()
 osThreadId connect2TaskHandle;
 #endif
@@ -152,10 +150,8 @@ int HAL_SPI_Initialized = 0;
 void SystemClock_Config(void);
 void StartDefaultTask(void const *argument);
 void StartDisplayTask(void const *argument);
-#if BUDDY_ENABLE_CONNECT()
 void StartConnectTask(void const *argument);
 void StartConnectTaskError(void const *argument); // Version for redscreen
-#endif
 #if BUDDY_ENABLE_CONNECT2()
 void StartConnect2Task(void const *argument);
 #endif
