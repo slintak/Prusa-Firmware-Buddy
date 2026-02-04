@@ -10,6 +10,8 @@ message Command {
     STOP_PRINT = 4;
     PAUSE_PRINT = 5;
     RESUME_PRINT = 6;
+    RESET_PRINTER = 8;
+    RESET = 9;
   }
 
   Type type = 1;

@@ -18,7 +18,9 @@ typedef enum _Command_Type {
     Command_Type_START_PRINT = 3,
     Command_Type_STOP_PRINT = 4,
     Command_Type_PAUSE_PRINT = 5,
-    Command_Type_RESUME_PRINT = 6
+    Command_Type_RESUME_PRINT = 6,
+    Command_Type_RESET_PRINTER = 8,
+    Command_Type_RESET = 9
 } Command_Type;
 
 /* Struct definitions */
@@ -36,8 +38,8 @@ extern "C" {
 
 /* Helper constants for enums */
 #define _Command_Type_MIN Command_Type_UNKNOWN
-#define _Command_Type_MAX Command_Type_SEND_JOB_INFO
-#define _Command_Type_ARRAYSIZE ((Command_Type)(Command_Type_SEND_JOB_INFO+1))
+#define _Command_Type_MAX Command_Type_RESET
+#define _Command_Type_ARRAYSIZE ((Command_Type)(Command_Type_RESET+1))
 
 #define Command_type_ENUMTYPE Command_Type
 

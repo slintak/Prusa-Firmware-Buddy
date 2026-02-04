@@ -280,6 +280,11 @@ void Client::handle_publish(const char *topic, size_t topic_len, const uint8_t *
         } else {
             telemetry_.publish_rejected_now(mqtt_client_, printer, params, "No print to stop", cmd.command_id);
         }
+    } else if (cmd.type == CommandType::ResetPrinter) {
+        auto &printer = shared_printer();
+        const auto params = printer.params();
+        printer.reset_printer();
+        telemetry_.publish_rejected_now(mqtt_client_, printer, params, "Failed to reset", cmd.command_id);
     }
 }
 

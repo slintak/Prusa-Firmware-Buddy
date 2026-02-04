@@ -41,6 +41,10 @@ DecodedCommand decode_command(const uint8_t *payload, size_t payload_len) {
     case Command_Type_RESUME_PRINT:
         decoded.type = CommandType::ResumePrint;
         break;
+    case Command_Type_RESET_PRINTER:
+    case Command_Type_RESET:
+        decoded.type = CommandType::ResetPrinter;
+        break;
     default:
         decoded.type = CommandType::Unknown;
         break;

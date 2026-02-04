@@ -15,6 +15,7 @@ enum class CommandType : uint8_t {
     PausePrint = 5,
     ResumePrint = 6,
     SendJobInfo = 7,
+    ResetPrinter = 8,
 };
 
 struct DecodedCommand {
