@@ -13,6 +13,20 @@ namespace {
 constexpr uint32_t SYNC_PERIOD_MS = 50;
 } // namespace
 
+void Client::publish_callback_thunk(void **state, struct mqtt_response_publish *publish) {
+    if (state == nullptr || *state == nullptr || publish == nullptr) {
+        return;
+    }
+    auto *self = static_cast<Client *>(*state);
+    if (self->publish_cb_ == nullptr) {
+        return;
+    }
+    self->publish_cb_(self->publish_cb_ctx_,
+        static_cast<const char *>(publish->topic_name), publish->topic_name_size,
+        static_cast<const uint8_t *>(publish->application_message), publish->application_message_size,
+        publish->qos_level, publish->retain_flag != 0, publish->dup_flag != 0);
+}
+
 Client::Client() {
     owned_transport_ = std::make_unique<MqttTransport>();
     transport_ = owned_transport_.get();
@@ -44,7 +58,8 @@ bool Client::connect(const char *host, uint16_t port, bool tls, bool custom_cert
     }
 
     mqtt_init(&client_, reinterpret_cast<mqtt_pal_socket_handle>(transport_), sendbuf_, sizeof(sendbuf_),
-        recvbuf_, sizeof(recvbuf_), nullptr);
+        recvbuf_, sizeof(recvbuf_), publish_callback_thunk);
+    client_.publish_response_callback_state = this;
 
     const char *client_id = "connect2";
     uint8_t connect_flags = MQTT_CONNECT_CLEAN_SESSION;
@@ -146,6 +161,14 @@ bool Client::is_connected() const {
     return connected_;
 }
 
+bool Client::subscribe(const char *topic, uint8_t qos) {
+    if (!initialized_ || !connected_ || connect_inflight_) {
+        return false;
+    }
+    const enum MQTTErrors err = mqtt_subscribe(&client_, topic, qos);
+    return err == MQTT_OK;
+}
+
 bool Client::publish(const char *topic, const char *payload, uint8_t publish_flags) {
     if (!initialized_ || !connected_ || connect_inflight_) {
         return false;
@@ -160,6 +183,11 @@ bool Client::publish_raw(const char *topic, const uint8_t *payload, size_t paylo
     }
     const enum MQTTErrors err = mqtt_publish(&client_, topic, payload, payload_len, publish_flags);
     return err == MQTT_OK;
+}
+
+void Client::set_publish_callback(PublishCallback cb, void *ctx) {
+    publish_cb_ = cb;
+    publish_cb_ctx_ = ctx;
 }
 
 } // namespace buddy::mqtt
