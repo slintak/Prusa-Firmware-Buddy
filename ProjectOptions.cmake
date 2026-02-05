@@ -191,6 +191,13 @@ else()
 endif()
 define_boolean_option(BUDDY_ENABLE_CONNECT ${CONNECT})
 
+# Set connect2 status/availability (experimental)
+set(CONNECT2
+    "NO"
+    CACHE BOOL "Enable Connect2 client (MQTT)"
+    )
+define_boolean_option(BUDDY_ENABLE_CONNECT2 ${CONNECT2})
+
 # Resolve BUILD_NUMBER and PROJECT_VERSION_* variables
 resolve_version_variables()
 
