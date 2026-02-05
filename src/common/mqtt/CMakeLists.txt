@@ -6,9 +6,9 @@ target_sources(
           mqtt_transport.cpp
           mqtt_pal.cpp
           log_component.cpp
-          tls/hardware_rng.cpp
-          tls/net_sockets.cpp
-          tls/tls.cpp
+          ../tls/hardware_rng.cpp
+          ../tls/net_sockets.cpp
+          ../tls/tls.cpp
           ../../../lib/Middlewares/Third_Party/MQTT-C/src/mqtt.c
   )
 
