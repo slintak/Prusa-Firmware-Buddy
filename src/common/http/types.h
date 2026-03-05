@@ -65,6 +65,7 @@ enum class ContentType {
     ImageSvg,
     ApplicationJavascript,
     ApplicationJson,
+    ApplicationXWwwFormUrlencoded,
     ApplicationOctetStream,
 };
 
@@ -93,6 +94,8 @@ constexpr const char *to_str(ContentType content_type) {
         return "application/javascript";
     case ContentType::ApplicationJson:
         return "application/json";
+    case ContentType::ApplicationXWwwFormUrlencoded:
+        return "application/x-www-form-urlencoded";
     case ContentType::ApplicationOctetStream:
         return "application/octet-stream";
     default:

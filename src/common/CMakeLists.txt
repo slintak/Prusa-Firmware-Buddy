@@ -49,6 +49,9 @@ if(BOARD IN_LIST BUDDY_BOARDS)
             media_prefetch_instance.cpp
             metric.cpp
             metric_handlers.cpp
+            oauth/device_flow.cpp
+            oauth/jwt.cpp
+            tls/log_component.cpp
             odometer.cpp
             otp.cpp
             path_utils.cpp
