@@ -32,8 +32,16 @@ struct OnlineStatus {
     OnlineError error;
 };
 
+struct RegistrationInfo {
+    bool available;
+    char verification_uri[192];
+    char user_code[64];
+    char verification_url_with_code[320];
+};
+
 void run();
 OnlineStatus last_status();
+RegistrationInfo registration_info();
 void request_registration();
 bool has_stored_auth();
 

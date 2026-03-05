@@ -19,6 +19,7 @@ public:
     void run();
     void request_registration();
     OnlineStatus last_status() const;
+    RegistrationInfo registration_info() const;
     bool has_stored_auth() const;
 
 private:
@@ -57,6 +58,10 @@ private:
     bool last_net_ready_ = false;
     buddy::ExponentialBackoff<uint32_t, 100, 60000> backoff_;
     std::atomic<bool> registration_requested_ { false };
+    std::atomic<bool> registration_info_valid_ { false };
+    char verification_uri_[192] = {};
+    char user_code_[64] = {};
+    char verification_url_with_code_[320] = {};
     std::atomic<ConnectionStatus> status_ { ConnectionStatus::Unknown };
     std::atomic<OnlineError> error_ { OnlineError::NoError };
     std::atomic<bool> has_stored_auth_ { false };

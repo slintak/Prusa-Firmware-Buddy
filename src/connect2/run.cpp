@@ -18,6 +18,10 @@ OnlineStatus last_status() {
     return g_client.last_status();
 }
 
+RegistrationInfo registration_info() {
+    return g_client.registration_info();
+}
+
 void request_registration() {
     g_client.request_registration();
 }

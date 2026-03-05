@@ -21,6 +21,10 @@ if(CONNECT)
   target_sources(firmware PRIVATE DialogConnectReg.cpp)
 endif()
 
+if(CONNECT2)
+  target_sources(firmware PRIVATE DialogConnect2Reg.cpp)
+endif()
+
 if(BOARD STREQUAL "BUDDY")
   add_subdirectory(resolution_240x320)
   target_sources(firmware PRIVATE)

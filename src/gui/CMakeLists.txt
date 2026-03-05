@@ -208,7 +208,7 @@ if(HAS_PHASE_STEPPING_CALIBRATION)
   target_sources(firmware PRIVATE screen_phase_stepping_calibration.cpp)
 endif()
 
-if(CONNECT)
+if(CONNECT OR CONNECT2)
   target_sources(firmware PRIVATE screen_menu_connect.cpp)
 endif()
 

@@ -58,6 +58,15 @@ OnlineError mqtt_error_to_online_error(enum MQTTErrors error) {
         return OnlineError::Connection;
     }
 }
+
+void build_verification_url_with_code(const char *verification_uri, const char *user_code, char *out, size_t out_len) {
+    if (verification_uri == nullptr || verification_uri[0] == '\0') {
+        out[0] = '\0';
+        return;
+    }
+    const char separator = strchr(verification_uri, '?') != nullptr ? '&' : '?';
+    snprintf(out, out_len, "%s%cuser_code=%s", verification_uri, separator, user_code ? user_code : "");
+}
 } // namespace
 
 Client::Client(buddy::mqtt::Client &mqtt_client)
@@ -81,6 +90,26 @@ OnlineStatus Client::last_status() const {
 
 bool Client::has_stored_auth() const {
     return has_stored_auth_.load();
+}
+
+RegistrationInfo Client::registration_info() const {
+    RegistrationInfo info {};
+    info.available = false;
+    if (!registration_info_valid_.load()) {
+        return info;
+    }
+
+    strlcpy(info.verification_uri, verification_uri_, sizeof(info.verification_uri));
+    strlcpy(info.user_code, user_code_, sizeof(info.user_code));
+    strlcpy(info.verification_url_with_code, verification_url_with_code_, sizeof(info.verification_url_with_code));
+
+    if (!registration_info_valid_.load()) {
+        info = {};
+        return info;
+    }
+
+    info.available = true;
+    return info;
 }
 
 void Client::step() {
@@ -113,6 +142,10 @@ void Client::step() {
         state_ = State::Disconnected;
         next_action_ms_ = 0;
         backoff_.reset();
+        registration_info_valid_.store(false);
+        verification_uri_[0] = '\0';
+        user_code_[0] = '\0';
+        verification_url_with_code_[0] = '\0';
         log_info(connect2, "oauth manual registration requested");
     }
 
@@ -316,6 +349,12 @@ bool Client::run_oauth_device_flow() {
         return false;
     }
 
+    registration_info_valid_.store(false);
+    strlcpy(verification_uri_, device_code.verification_uri, sizeof(verification_uri_));
+    strlcpy(user_code_, device_code.user_code, sizeof(user_code_));
+    build_verification_url_with_code(verification_uri_, user_code_, verification_url_with_code_, sizeof(verification_url_with_code_));
+    registration_info_valid_.store(true);
+
     log_info(connect2, "oauth user_code=%s verification_uri=%s", device_code.user_code, device_code.verification_uri);
 
     static buddy::oauth::Tokens tokens {};
@@ -325,6 +364,11 @@ bool Client::run_oauth_device_flow() {
         error_.store(oauth_error_to_online_error(error));
         return false;
     }
+
+    registration_info_valid_.store(false);
+    verification_uri_[0] = '\0';
+    user_code_[0] = '\0';
+    verification_url_with_code_[0] = '\0';
 
     buddy::oauth::jwt::Error jwt_error = buddy::oauth::jwt::Error::None;
     char mqtt_username[sizeof(auth_.mqtt_username)] = {};
