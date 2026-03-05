@@ -203,7 +203,6 @@ variant<size_t, Error> Response::read_all(uint8_t *buffer, size_t size) {
             return get<Error>(result);
         }
     }
-
     return pos;
 }
 

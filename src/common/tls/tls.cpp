@@ -18,7 +18,7 @@
 using http::Error;
 using std::unique_ptr;
 
-LOG_COMPONENT_REF(mqtt);
+LOG_COMPONENT_REF(tls);
 
 namespace {
 
@@ -84,22 +84,22 @@ void bytes_to_hex(const uint8_t *data, size_t size, char *out, size_t out_len) {
 void log_cert_fingerprint(const char *label, const uint8_t *data, size_t size) {
     uint8_t digest[32] = {};
     if (mbedtls_sha256_ret(data, size, digest, 0) != 0) {
-        log_info(mqtt, "%s sha256=<error>", label);
+        log_info(tls, "%s sha256=<error>", label);
         return;
     }
     char hex[65] = {};
     bytes_to_hex(digest, sizeof(digest), hex, sizeof(hex));
-    log_info(mqtt, "%s sha256=%s size=%u", label, hex, static_cast<unsigned>(size));
+    log_info(tls, "%s sha256=%s size=%u", label, hex, static_cast<unsigned>(size));
 }
 
 void log_verify_flags(uint32_t flags) {
     if (flags == 0) {
-        log_info(mqtt, "tls_verify_flags=0x0");
+        log_info(tls, "tls_verify_flags=0x0");
         return;
     }
     char info[256] = {};
     mbedtls_x509_crt_verify_info(info, sizeof(info), "", flags);
-    log_info(mqtt, "tls_verify_flags=0x%08x (%s)", static_cast<unsigned>(flags), info);
+    log_info(tls, "tls_verify_flags=0x%08x (%s)", static_cast<unsigned>(flags), info);
 }
 
 } // namespace
@@ -134,7 +134,7 @@ tls::~tls() {
 
 std::optional<Error> tls::connection(const char *connection_host, uint16_t connection_port, const char *destination_host, uint16_t destination_port) {
 
-    log_debug(mqtt, "Starting SSL handshake");
+    log_debug(tls, "Starting SSL handshake");
     int status;
     InitContexts ctxs;
 
@@ -146,7 +146,7 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
     buddy::ConserveCpu::Guard request_cpu_limiting;
 
     if (!ctxs.is_valid()) {
-        log_error(mqtt, "Not enough mem for SSL");
+        log_error(tls, "Not enough mem for SSL");
         return Error::Memory;
     }
 
@@ -169,11 +169,11 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         //
         // TODO: Unify the path somewhere
         const char *cert_path = "/internal/connect/connect.der";
-        log_info(mqtt, "custom_cert=true path=%s", cert_path);
+        log_info(tls, "custom_cert=true path=%s", cert_path);
         unique_file_ptr cert(fopen(cert_path, "rb"));
         if (!cert) {
             // Missing cert
-            log_info(mqtt, "custom_cert missing");
+            log_info(tls, "custom_cert missing");
             return Error::Tls;
         }
 
@@ -195,7 +195,7 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
 
         size_t read = fread(der_buffer.get(), 1, fsize, cert.get());
         if (read != static_cast<size_t>(fsize) || ferror(cert.get())) {
-            log_info(mqtt, "custom_cert read failed: read=%u expected=%u", static_cast<unsigned>(read),
+            log_info(tls, "custom_cert read failed: read=%u expected=%u", static_cast<unsigned>(read),
                 static_cast<unsigned>(fsize));
             return Error::InternalError;
         }
@@ -207,7 +207,7 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
             fsize);
         if (status != 0) {
             // Wrong file content
-            log_info(mqtt, "custom_cert parse failed: %d (0x%x)", status, static_cast<unsigned>(-status));
+            log_info(tls, "custom_cert parse failed: %d (0x%x)", status, static_cast<unsigned>(-status));
             return Error::Tls;
         }
     } else {
@@ -222,9 +222,7 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
             ++idx;
         }
     }
-    log_debug(mqtt, "Loaded certs");
-
-    mbedtls_ssl_conf_ca_chain(&ssl_config, &ctxs.x509_certificate, NULL);
+    log_debug(tls, "Loaded certs");
 
     if ((status = mbedtls_ssl_config_defaults(&ssl_config,
              MBEDTLS_SSL_IS_CLIENT,
@@ -233,6 +231,8 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
         != 0) {
         return Error::InternalError;
     }
+
+    mbedtls_ssl_conf_ca_chain(&ssl_config, &ctxs.x509_certificate, NULL);
 
     // Only use TLS 1.2
     mbedtls_ssl_conf_max_version(&ssl_config, MBEDTLS_SSL_MAJOR_VERSION_3, MBEDTLS_SSL_MINOR_VERSION_3);
@@ -244,22 +244,24 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
     static const int tls_cipher_suites[2] = { MBEDTLS_TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, 0 };
     mbedtls_ssl_conf_ciphersuites(&ssl_config, tls_cipher_suites);
 
-    mbedtls_ssl_set_hostname(&ssl_context, destination_host);
-
     if ((status = mbedtls_ssl_setup(&ssl_context, &ssl_config)) != 0) {
         return Error::InternalError;
+    }
+    if ((status = mbedtls_ssl_set_hostname(&ssl_context, destination_host)) != 0) {
+        log_info(tls, "ssl set hostname failed: %d (0x%x)", status, static_cast<unsigned>(-status));
+        return Error::Tls;
     }
 
     mbedtls_ssl_set_bio(&ssl_context, &net_context, mbedtls_net_send, mbedtls_net_recv, NULL);
 
     if ((status = mbedtls_plain_connect(&net_context, connection_host, connection_port)) != 0) {
-        log_info(mqtt, "ssl handshake failed with: %d", status);
+        log_info(tls, "ssl handshake failed with: %d", status);
         return Error::Connect;
     }
 
     // Really a pointer compare, not strcmp.
     if (destination_host != connection_host || destination_port != connection_port) {
-        log_info(mqtt, "proxy connect not supported");
+        log_info(tls, "proxy connect not supported");
         return Error::Proxy;
     }
 
@@ -270,12 +272,12 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
             break;
         }
         if (status != MBEDTLS_ERR_SSL_WANT_READ && status != MBEDTLS_ERR_SSL_WANT_WRITE) {
-            log_info(mqtt, "ssl handshake failed with: %d", status);
+            log_info(tls, "ssl handshake failed: %d (0x%x)", status, static_cast<unsigned>(-status));
             return Error::Tls;
         }
 
         if (net_context.timeout_happened) {
-            log_info(mqtt, "SSL timeout");
+            log_info(tls, "SSL timeout");
             // Timeouts are mapped to ERR_SSL_WANT_(READ|WRITE). But possibly
             // there are other things that are mapped to that too? Not sure.
             // Therefore, we smuggle the timeouts in this side channel.
@@ -289,17 +291,17 @@ std::optional<Error> tls::connection(const char *connection_host, uint16_t conne
     if (const mbedtls_x509_crt *peer = mbedtls_ssl_get_peer_cert(&ssl_context); peer != nullptr) {
         log_cert_fingerprint("server_cert", peer->raw.p, peer->raw.len);
     } else {
-        log_info(mqtt, "server_cert missing");
+        log_info(tls, "server_cert missing");
     }
 
     const uint32_t verify_flags = mbedtls_ssl_get_verify_result(&ssl_context);
     log_verify_flags(verify_flags);
     if (verify_flags != 0) {
-        log_info(mqtt, "SSL error");
+        log_info(tls, "SSL error");
         return Error::Tls;
     }
 
-    log_debug(mqtt, "SSL done");
+    log_debug(tls, "SSL done");
 
     return std::nullopt;
 }
@@ -315,7 +317,7 @@ std::variant<size_t, Error> tls::tx(const uint8_t *send_buffer, size_t data_len)
     int status = mbedtls_ssl_write(&ssl_context, (const unsigned char *)send_buffer, data_len);
 
     if (status <= 0) {
-        log_info(mqtt, "ssl write failed with: %d", status);
+        log_info(tls, "ssl write failed: %d (0x%x)", status, static_cast<unsigned>(-status));
         if (net_context.timeout_happened) {
             return Error::Timeout;
         } else {
@@ -333,20 +335,30 @@ std::variant<size_t, Error> tls::rx(uint8_t *read_buffer, size_t buffer_len, [[m
     assert(!nonblock);
     size_t bytes_received = 0;
 
-    net_context.timeout_happened = false;
-    int status = mbedtls_ssl_read(&ssl_context, (unsigned char *)read_buffer, buffer_len);
+    while (true) {
+        net_context.timeout_happened = false;
+        const int status = mbedtls_ssl_read(&ssl_context, (unsigned char *)read_buffer, buffer_len);
 
-    if (status <= 0) {
-        if (net_context.timeout_happened) {
-            return Error::Timeout;
-        } else {
-            return Error::Network;
+        if (status > 0) {
+            bytes_received = static_cast<size_t>(status);
+            return bytes_received;
         }
+
+        if (status == 0 || status == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY || status == MBEDTLS_ERR_SSL_CONN_EOF) {
+            // EOF.
+            return static_cast<size_t>(0);
+        }
+
+        if (status == MBEDTLS_ERR_SSL_WANT_READ || status == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            if (net_context.timeout_happened) {
+                return Error::Timeout;
+            }
+            continue;
+        }
+
+        log_info(tls, "ssl read failed: %d (0x%x)", status, static_cast<unsigned>(-status));
+        return Error::Network;
     }
-
-    bytes_received = (size_t)status;
-
-    return bytes_received;
 }
 
 bool tls::poll_readable(uint32_t timeout) {

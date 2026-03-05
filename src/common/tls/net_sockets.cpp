@@ -91,7 +91,6 @@ int mbedtls_net_recv(void *ctx, unsigned char *buf, size_t len) {
         // Note: read in the connection factory (tls.cpp), we use this to smuggle the info through several layers up.
         context->timeout_happened = true;
     }
-
     return converted;
 }
 
@@ -107,7 +106,6 @@ int mbedtls_net_send(void *ctx, const unsigned char *buf, size_t len) {
         // Note: read in the connection factory (tls.cpp), we use this to smuggle the info through several layers up.
         context->timeout_happened = true;
     }
-
     return converted;
 }
 
