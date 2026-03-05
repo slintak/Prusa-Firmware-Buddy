@@ -21,6 +21,7 @@ namespace connect2_client {
 
 namespace {
 constexpr const char *INI_SECTION = "service::connect";
+constexpr const char *OAUTH_CFG_PATH = "/internal/connect/oauth.cfg";
 
 struct IniConfig {
     char host[config_store_ns::connect_host_size + 1] = "";
@@ -28,11 +29,51 @@ struct IniConfig {
     bool tls = true;
     bool custom_cert = false;
     bool loaded = false;
+    char oauth_device_auth_url[128] = "";
+    char oauth_token_url[128] = "";
+    char oauth_url[96] = "";
+    char oauth_device_auth_path[64] = "/oauth/device_authorization";
+    char oauth_token_path[64] = "/oauth/token";
+    bool oauth_loaded = false;
 };
 
 bool ini_string_match(const char *section, const char *section_var,
     const char *name, const char *name_var) {
     return strcmp(section_var, section) == 0 && strcmp(name_var, name) == 0;
+}
+
+bool compose_url(const char *base_url, const char *path, char *out, size_t out_size) {
+    if (base_url == nullptr || path == nullptr || base_url[0] == '\0' || path[0] == '\0' || out_size == 0) {
+        return false;
+    }
+
+    const size_t base_len = strlen(base_url);
+    const bool base_has_slash = base_len > 0 && base_url[base_len - 1] == '/';
+    const bool path_has_slash = path[0] == '/';
+    const char *path_part = path;
+    if (base_has_slash && path_has_slash) {
+        path_part = path + 1;
+    }
+    const char *sep = (!base_has_slash && !path_has_slash) ? "/" : "";
+    return snprintf(out, out_size, "%s%s%s", base_url, sep, path_part) > 0;
+}
+
+void fill_missing_oauth_urls(IniConfig &cfg) {
+    if (cfg.oauth_device_auth_url[0] == '\0') {
+        (void)compose_url(cfg.oauth_url, cfg.oauth_device_auth_path, cfg.oauth_device_auth_url, sizeof(cfg.oauth_device_auth_url));
+    }
+    if (cfg.oauth_token_url[0] == '\0') {
+        (void)compose_url(cfg.oauth_url, cfg.oauth_token_path, cfg.oauth_token_url, sizeof(cfg.oauth_token_url));
+    }
+}
+
+void fill_missing_oauth_urls(Config &cfg, const char *legacy_base_url, const char *legacy_auth_path, const char *legacy_token_path) {
+    if (cfg.oauth_device_auth_url[0] == '\0') {
+        (void)compose_url(legacy_base_url, legacy_auth_path, cfg.oauth_device_auth_url, sizeof(cfg.oauth_device_auth_url));
+    }
+    if (cfg.oauth_token_url[0] == '\0') {
+        (void)compose_url(legacy_base_url, legacy_token_path, cfg.oauth_token_url, sizeof(cfg.oauth_token_url));
+    }
 }
 
 int connect_ini_handler(void *user, const char *section, const char *name,
@@ -77,6 +118,21 @@ int connect_ini_handler(void *user, const char *section, const char *name,
         } else {
             return 0;
         }
+    } else if (ini_string_match(section, INI_SECTION, name, "oauth_device_auth_url")) {
+        strlcpy(config->oauth_device_auth_url, value, sizeof(config->oauth_device_auth_url));
+        config->oauth_loaded = true;
+    } else if (ini_string_match(section, INI_SECTION, name, "oauth_token_url")) {
+        strlcpy(config->oauth_token_url, value, sizeof(config->oauth_token_url));
+        config->oauth_loaded = true;
+    } else if (ini_string_match(section, INI_SECTION, name, "oauth_url")) {
+        strlcpy(config->oauth_url, value, sizeof(config->oauth_url));
+        config->oauth_loaded = true;
+    } else if (ini_string_match(section, INI_SECTION, name, "oauth_device_auth_path")) {
+        strlcpy(config->oauth_device_auth_path, value, sizeof(config->oauth_device_auth_path));
+        config->oauth_loaded = true;
+    } else if (ini_string_match(section, INI_SECTION, name, "oauth_token_path")) {
+        strlcpy(config->oauth_token_path, value, sizeof(config->oauth_token_path));
+        config->oauth_loaded = true;
     }
     return 1;
 }
@@ -149,6 +205,58 @@ void log_file_sha256(const char *label, const char *path) {
     bytes_to_hex(digest, sizeof(digest), hex, sizeof(hex));
     log_info(connect2, "%s %s sha256=%s size=%u", label, path, hex, static_cast<unsigned>(total));
 }
+
+bool save_oauth_cfg(const IniConfig &cfg) {
+    mkdir("/internal/connect", 0777);
+    unique_file_ptr f(fopen(OAUTH_CFG_PATH, "wb"));
+    if (!f) {
+        log_info(connect2, "oauth cfg open for write failed path=%s errno=%d", OAUTH_CFG_PATH, errno);
+        return false;
+    }
+    const int written = fprintf(f.get(),
+        "oauth_device_auth_url=%s\noauth_token_url=%s\n",
+        cfg.oauth_device_auth_url, cfg.oauth_token_url);
+    if (written <= 0 || ferror(f.get())) {
+        log_info(connect2, "oauth cfg write failed path=%s errno=%d", OAUTH_CFG_PATH, errno);
+        return false;
+    }
+    return true;
+}
+
+void load_oauth_cfg(Config &cfg) {
+    unique_file_ptr f(fopen(OAUTH_CFG_PATH, "rb"));
+    if (!f) {
+        return;
+    }
+    char legacy_base_url[96] = {};
+    char legacy_auth_path[64] = {};
+    char legacy_token_path[64] = {};
+    char line[256] = {};
+    while (fgets(line, sizeof(line), f.get()) != nullptr) {
+        char *eq = strchr(line, '=');
+        if (!eq) {
+            continue;
+        }
+        *eq = '\0';
+        char *value = eq + 1;
+        char *nl = strchr(value, '\n');
+        if (nl) {
+            *nl = '\0';
+        }
+        if (strcmp(line, "oauth_device_auth_url") == 0) {
+            strlcpy(cfg.oauth_device_auth_url, value, sizeof(cfg.oauth_device_auth_url));
+        } else if (strcmp(line, "oauth_token_url") == 0) {
+            strlcpy(cfg.oauth_token_url, value, sizeof(cfg.oauth_token_url));
+        } else if (strcmp(line, "oauth_url") == 0) {
+            strlcpy(legacy_base_url, value, sizeof(legacy_base_url));
+        } else if (strcmp(line, "oauth_device_auth_path") == 0) {
+            strlcpy(legacy_auth_path, value, sizeof(legacy_auth_path));
+        } else if (strcmp(line, "oauth_token_path") == 0) {
+            strlcpy(legacy_token_path, value, sizeof(legacy_token_path));
+        }
+    }
+    fill_missing_oauth_urls(cfg, legacy_base_url, legacy_auth_path, legacy_token_path);
+}
 } // namespace
 
 Config load_config() {
@@ -159,15 +267,17 @@ Config load_config() {
     cfg.tls = config_store().connect_tls.get();
     cfg.port = config_store().connect_port.get();
     cfg.custom_cert = config_store().connect_custom_tls_cert.get();
+    load_oauth_cfg(cfg);
     return cfg;
 }
 
 bool load_cfg_from_ini() {
     IniConfig config;
     bool ok = ini_parse("/usb/prusa_printer_settings.ini", connect_ini_handler, &config) == 0;
-    ok = ok && config.loaded;
+    ok = ok && (config.loaded || config.oauth_loaded);
+    fill_missing_oauth_urls(config);
 
-    if (ok && config.custom_cert) {
+    if (ok && config.loaded && config.custom_cert) {
         mkdir("/internal/connect", 0777);
         if (!copy_file("/usb/connect.der", "/internal/connect/connect.der")) {
             log_info(connect2, "copy /usb/connect.der -> /internal/connect/connect.der failed (errno=%d)", errno);
@@ -177,7 +287,11 @@ bool load_cfg_from_ini() {
         log_file_sha256("internal_cert", "/internal/connect/connect.der");
     }
 
-    if (ok) {
+    if (ok && config.oauth_loaded) {
+        ok = save_oauth_cfg(config);
+    }
+
+    if (ok && config.loaded) {
         auto &store = config_store();
         auto transaction = store.get_backend().transaction_guard();
         store.connect_host.set(config.host);

@@ -18,6 +18,7 @@ public:
     void reset();
     void tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client);
     bool build_online_topic(char *buffer, size_t buffer_size) const;
+    void set_identity(const char *identity);
 
 private:
     struct LastTelemetry {
@@ -58,6 +59,7 @@ private:
     uint32_t last_full_telemetry_ms_ = 0;
     connect_client::Tracked telemetry_changes_;
     LastTelemetry last_;
+    char printer_id_[64] = {};
 };
 
 } // namespace connect2_client

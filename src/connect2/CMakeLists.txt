@@ -3,6 +3,7 @@ target_sources(
   PRIVATE client.cpp
           config.cpp
           hostname.cpp
+          oauth_storage.cpp
           telemetry.cpp
           run.cpp
           log_component.cpp
