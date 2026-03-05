@@ -1,0 +1,74 @@
+oauth:
+  public_base_url: "https://localhost:8443"
+  issuer_url: ""
+  token_format: "jwt"
+  # Optional PEM private key path (RS256). If empty, sandbox generates ephemeral
+  # in-memory RSA key at startup.
+  jwt_private_key_path: ""
+  jwt_kid: ""
+  jwt_subject: "sandbox-user"
+  jwt_email: "sandbox@example.com"
+  jwt_account_id: 1
+  jwt_refresh_app: "oauth-mqtt-sandbox"
+  # Optional explicit fixtures: stable SN -> UUID mapping.
+  sn_uuid_map: {}
+  access_token_expires_in: 900
+  # <= 0 means no fixed expiry (valid until revocation).
+  refresh_token_expires_in: 0
+  device_code_expires_in: 600
+  poll_interval_seconds: 5
+  cleanup_interval_seconds: 10
+  bind_host: "0.0.0.0"
+  bind_port: 8443
+  tls:
+    ca_file: ""
+    cert_file: ""
+    key_file: ""
+    # Must match FW-required cipher.
+    ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256"
+
+mqtt:
+  enabled: false
+  provisioner: "mosquitto_ctrl"
+  host: "localhost"
+  port: 8883
+  username: "admin"
+  password: "change-me-admin"
+  client_id: "oauth-control-client"
+  keepalive: 30
+  tls:
+    ca_file: ""
+    cert_file: ""
+    key_file: ""
+    insecure: false
+  control_topic: "$CONTROL/dynamic-security/v1"
+  response_topic: "$CONTROL/dynamic-security/v1/response"
+  device_role: "device-role"
+  device_role_per_client: true
+  device_acls:
+    - acltype: "publishClientSend"
+      topic: "devices/%u/#"
+      allow: true
+    - acltype: "publishClientSend"
+      topic: "v1/devices/printers/%u/#"
+      allow: true
+    - acltype: "subscribeLiteral"
+      topic: "devices/%u/#"
+      allow: true
+    - acltype: "subscribePattern"
+      topic: "v1/devices/printers/%u/#"
+      allow: true
+    - acltype: "publishClientReceive"
+      topic: "devices/%u/#"
+      allow: true
+    - acltype: "publishClientReceive"
+      topic: "v1/devices/printers/%u/#"
+      allow: true
+  control_role: "oauth-control"
+  control_acls:
+    - acltype: "publishClientSend"
+      topic: "$CONTROL/dynamic-security/#"
+      allow: true
+    - acltype: "subscribePattern"
+      topic: "$CONTROL/dynamic-security/#"
+      allow: true

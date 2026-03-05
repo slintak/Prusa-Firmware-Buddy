@@ -1,0 +1,17 @@
+services:
+  sandbox:
+    build: .
+    ports:
+      - "8883:8883"
+      - "8443:8443"
+    environment:
+      DYNSEC_ADMIN_PASSWORD: "change-me-admin"
+      OAUTH_CONFIG_PATH: /app/config.yaml
+    volumes:
+      - ./certs:/certs
+      - ./config.yaml:/app/config.yaml
+      - mosquitto-data:/mosquitto/data
+    restart: unless-stopped
+
+volumes:
+  mosquitto-data:
