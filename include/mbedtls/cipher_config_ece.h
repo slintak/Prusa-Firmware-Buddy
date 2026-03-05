@@ -57,10 +57,10 @@
 #define MBEDTLS_MPI_WINDOW_SIZE       1
 #define MBEDTLS_ECP_WINDOW_SIZE       2
 #define MBEDTLS_ECP_FIXED_POINT_OPTIM 0
-#define MBEDTLS_SSL_MAX_CONTENT_LEN   1024
+#define MBEDTLS_SSL_MAX_CONTENT_LEN   4096
 
 #define MBEDTLS_SSL_OUT_CONTENT_LEN 512
-#define MBEDTLS_SSL_IN_CONTENT_LEN  1024
+#define MBEDTLS_SSL_IN_CONTENT_LEN  4096
 // Tell the server we don't want big fragments (relates to MBEDTLS_SSL_OUT_CONTENT_LEN)
 #define MBEDTLS_SSL_MAX_FRAGMENT_LENGTH
 // Prefer smaller code over fast computations (our CPU is idle most of the time anyway).
