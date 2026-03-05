@@ -14,8 +14,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         # <= 0 means no fixed expiry (valid until server-side revocation).
         "refresh_token_expires_in": 0,
         "device_code_expires_in": 600,
-        "poll_interval_seconds": 5,
+        "poll_interval_seconds": 2,
         "cleanup_interval_seconds": 10,
+        "keepalive_timeout_seconds": 30,
         "jwt_private_key_path": "",
         "jwt_kid": "",
         "jwt_subject": "sandbox-user",

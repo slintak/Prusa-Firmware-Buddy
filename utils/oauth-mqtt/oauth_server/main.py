@@ -474,6 +474,7 @@ def main() -> None:
         host=OAUTH.get("bind_host", "0.0.0.0"),
         port=int(OAUTH.get("bind_port", 8443)),
         log_level=os.getenv("UVICORN_LOG_LEVEL", "info"),
+        timeout_keep_alive=int(OAUTH.get("keepalive_timeout_seconds", 30)),
         ssl_certfile=cert_file,
         ssl_keyfile=key_file,
         ssl_ciphers=ciphers,

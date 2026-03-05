@@ -16,8 +16,9 @@ oauth:
   # <= 0 means no fixed expiry (valid until revocation).
   refresh_token_expires_in: 0
   device_code_expires_in: 600
-  poll_interval_seconds: 5
+  poll_interval_seconds: 2
   cleanup_interval_seconds: 10
+  keepalive_timeout_seconds: 30
   bind_host: "0.0.0.0"
   bind_port: 8443
   tls:

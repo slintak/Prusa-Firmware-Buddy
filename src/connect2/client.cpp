@@ -339,6 +339,7 @@ bool Client::run_oauth_device_flow() {
     oauth_cfg.scope = "mqtt";
     oauth_cfg.serial_number = sn_value;
     oauth_cfg.custom_cert = cfg_.custom_cert;
+    oauth_cfg.initial_poll_interval_s = 2;
 
     static buddy::oauth::DeviceCode device_code {};
     device_code = {};

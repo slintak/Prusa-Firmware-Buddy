@@ -291,6 +291,43 @@ bool send_form_post(const char *host, uint16_t port, bool custom_cert, const cha
     return true;
 }
 
+bool send_form_post_keep_alive(http::HttpClient &client, TlsConnectionFactory &factory,
+    const char *host, uint16_t port, const char *path, const char *body,
+    char *resp_body, size_t resp_body_len, http::Status &status_out) {
+    FormPostRequest req(path, body);
+    auto result = client.send(req);
+    if (std::holds_alternative<http::Error>(result)) {
+        log_info(oauth_df, "http send failed: %s host=%s port=%u path=%s", http::to_str(std::get<http::Error>(result)), host, static_cast<unsigned>(port), path);
+        factory.invalidate();
+        return false;
+    }
+
+    auto response = std::move(std::get<http::Response>(result));
+    status_out = response.status;
+    log_info(oauth_df, "http response host=%s port=%u path=%s status=%u content_length=%u keep_alive=%u",
+        host,
+        static_cast<unsigned>(port),
+        path,
+        static_cast<unsigned>(status_out),
+        static_cast<unsigned>(response.content_length()),
+        response.can_keep_alive ? 1U : 0U);
+    auto read_res = response.read_all(reinterpret_cast<uint8_t *>(resp_body), resp_body_len - 1);
+    if (std::holds_alternative<http::Error>(read_res)) {
+        log_info(oauth_df, "http read failed: %s host=%s port=%u path=%s status=%u",
+            http::to_str(std::get<http::Error>(read_res)),
+            host, static_cast<unsigned>(port), path, static_cast<unsigned>(status_out));
+        factory.invalidate();
+        return false;
+    }
+
+    const size_t read_len = std::get<size_t>(read_res);
+    resp_body[read_len] = '\0';
+    if (!response.can_keep_alive) {
+        factory.invalidate();
+    }
+    return true;
+}
+
 bool set_error(Error *error, Error value) {
     if (error) {
         *error = value;
@@ -383,7 +420,13 @@ bool poll_tokens(const DeviceFlowConfig &cfg, const DeviceCode &device_code, Tok
         return set_error(error, Error::InvalidUrl);
     }
 
+    TlsConnectionFactory factory(scratch.host, port, cfg.custom_cert);
+    http::HttpClient client(factory);
+
     uint32_t interval_s = device_code.interval_s > 0 ? device_code.interval_s : cfg.initial_poll_interval_s;
+    if (interval_s < 2) {
+        interval_s = 2;
+    }
     const char *sn = (cfg.serial_number && cfg.serial_number[0] != '\0') ? cfg.serial_number : "UNKNOWN_SN";
 
     for (uint8_t attempt = 0; attempt < cfg.max_poll_attempts; ++attempt) {
@@ -394,7 +437,7 @@ bool poll_tokens(const DeviceFlowConfig &cfg, const DeviceCode &device_code, Tok
 
         memset(scratch.resp_body, 0, sizeof(scratch.resp_body));
         http::Status status = http::Status::UnknownStatus;
-        if (!send_form_post(scratch.host, port, cfg.custom_cert, scratch.path, scratch.req_body, scratch.resp_body, sizeof(scratch.resp_body), status)) {
+        if (!send_form_post_keep_alive(client, factory, scratch.host, port, scratch.path, scratch.req_body, scratch.resp_body, sizeof(scratch.resp_body), status)) {
             // Keep polling on transient transport errors.
             osDelay(interval_s * 1000U);
             continue;
