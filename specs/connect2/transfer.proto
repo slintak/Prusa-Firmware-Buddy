@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package connect2;
+
+// Inline transfer chunk sent from proxy/server to printer.
+//
+// MQTT topic:
+//   v1/devices/printers/<device_id>/transfer
+//
+// Legacy Connect WebSocket mapping:
+// - corresponds to frame type 'T'
+message TransferChunkEnvelope {
+  // Transport-level command id for correlation/logging.
+  uint32 command_id = 1;
+
+  // Transfer session id. In legacy flow this is typically start command id.
+  uint32 transfer_id = 2;
+
+  // 0-based chunk sequence index within transfer session.
+  uint32 chunk_index = 3;
+
+  // True when this is final chunk in transfer stream.
+  bool last = 4;
+
+  // Raw file bytes of this chunk.
+  bytes data = 5;
+
+  // Optional per-chunk CRC32 for integrity checks.
+  bool has_crc32 = 6;
+  uint32 crc32 = 7;
+}

@@ -1,0 +1,2 @@
+connect2.TelemetryEnvelope.state max_length: 16
+connect2.TelemetryEnvelope.material max_length: 32

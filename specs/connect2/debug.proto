@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package connect2;
+
+// Debug/diagnostic message shared between proxy/server and printer.
+//
+// MQTT topics:
+// - server/proxy -> printer: v1/devices/printers/<device_id>/debug
+// - printer -> server/proxy: v1/devices/printers/<device_id>/debug
+//
+// Legacy Connect WebSocket mapping:
+// - corresponds to frame type 'D'
+message DebugMessageEnvelope {
+  // Optional correlation to command context.
+  uint32 command_id = 1;
+
+  DebugLevel level = 2;
+
+  // Producer/source identifier (component or module name).
+  string source = 3;
+
+  // Human-readable debug message.
+  string message = 4;
+
+  // Monotonic or unix epoch milliseconds (producer-defined).
+  uint64 timestamp_ms = 5;
+}
+
+enum DebugLevel {
+  DEBUG_LEVEL_UNSPECIFIED = 0;
+  DEBUG_LEVEL_TRACE = 1;
+  DEBUG_LEVEL_DEBUG = 2;
+  DEBUG_LEVEL_INFO = 3;
+  DEBUG_LEVEL_WARN = 4;
+  DEBUG_LEVEL_ERROR = 5;
+}

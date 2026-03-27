@@ -1,0 +1,14 @@
+SendFileInfoCommand.path max_length: 104
+StartPrintCommand.path max_length: 104
+DeleteFileCommand.path max_length: 104
+DeleteFolderCommand.path max_length: 104
+CreateFolderCommand.path max_length: 104
+SetTokenCommand.token max_length: 1536
+SetValueCommand.string_value max_length: 128
+StartInlineDownloadCommand.path max_length: 104
+StartInlineDownloadCommand.hash max_length: 64
+StartConnectDownloadCommand.path max_length: 104
+StartConnectDownloadCommand.hash max_length: 64
+StartEncryptedDownloadCommand.path max_length: 104
+StartEncryptedDownloadCommand.key max_size: 16
+StartEncryptedDownloadCommand.iv max_size: 16

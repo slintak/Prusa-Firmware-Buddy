@@ -1,0 +1,481 @@
+syntax = "proto3";
+
+package connect2;
+
+import "command.proto";
+
+// CONNECT2 event protocol for printer-side MQTT transport.
+//
+// This file documents how legacy Connect JSON events map to protobuf payloads.
+// It is deliberately verbose: these comments are intended to replace future
+// archaeology through src/connect/planner.cpp and src/connect/render.cpp.
+//
+// Legacy JSON event shape reminder:
+// {
+//   "event": "EVENT_NAME",
+//   "state": "IDLE",
+//   "dialog_id": 123,
+//   "command_id": 456,
+//   "transfer_id": 789,
+//   "data": {
+//     ... event-specific payload ...
+//   }
+// }
+//
+// Not every event carried every metadata field, and some events had an empty or
+// absent data object. This protobuf envelope makes those metadata fields
+// explicit and uses typed payload messages for event-specific content.
+
+// Shared machine-readable reason values found in old planner/render code.
+enum MachineReason {
+  MACHINE_REASON_UNSPECIFIED = 0;
+  MACHINE_REASON_TRANSFER_IN_PROGRESS = 1;
+  MACHINE_REASON_FILE_EXISTS = 2;
+  MACHINE_REASON_STORAGE_FAILURE = 3;
+  MACHINE_REASON_NETWORK_FAILURE = 4;
+  MACHINE_REASON_NOT_READY = 5;
+}
+
+// Top-level event envelope emitted from printer to proxy over MQTT.
+message EventEnvelope {
+  // Legacy JSON top-level key: event
+  EventType event = 1;
+
+  // Legacy JSON top-level key: state
+  string state = 2;
+
+  // True when legacy JSON included top-level dialog_id.
+  bool has_dialog_id = 3;
+  uint32 dialog_id = 4;
+
+  // True when the event is associated with a command response and old JSON
+  // included top-level command_id.
+  bool has_command_id = 5;
+  uint32 command_id = 6;
+
+  // True when old JSON included top-level transfer_id.
+  bool has_transfer_id = 7;
+  uint32 transfer_id = 8;
+
+  // Human-readable reason string. Historically this was used mainly by
+  // REJECTED and some failure-like cases.
+  bool has_reason = 9;
+  string reason = 10;
+
+  // Machine-readable reason enum from old planner Event.machine_reason.
+  MachineReason machine_reason = 11;
+
+  oneof payload {
+    InfoPayload info = 20;
+    AcceptedPayload accepted = 21;
+    RejectedPayload rejected = 22;
+    JobInfoPayload job_info = 23;
+    FileInfoPayload file_info = 24;
+    FileChangedPayload file_changed = 25;
+    TransferInfoPayload transfer_info = 26;
+    FinishedPayload finished = 27;
+    FailedPayload failed = 28;
+    TransferStoppedPayload transfer_stopped = 29;
+    TransferAbortedPayload transfer_aborted = 30;
+    TransferFinishedPayload transfer_finished = 31;
+    CancelableChangedPayload cancelable_changed = 32;
+    StateChangedPayload state_changed = 33;
+  }
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_INFO = 1;
+  EVENT_TYPE_ACCEPTED = 2;
+  EVENT_TYPE_REJECTED = 3;
+  EVENT_TYPE_JOB_INFO = 4;
+  EVENT_TYPE_FILE_INFO = 5;
+  EVENT_TYPE_FILE_CHANGED = 6;
+  EVENT_TYPE_TRANSFER_INFO = 7;
+  EVENT_TYPE_FINISHED = 8;
+  EVENT_TYPE_FAILED = 9;
+  EVENT_TYPE_TRANSFER_STOPPED = 10;
+  EVENT_TYPE_TRANSFER_ABORTED = 11;
+  EVENT_TYPE_TRANSFER_FINISHED = 12;
+  EVENT_TYPE_CANCELABLE_CHANGED = 13;
+  EVENT_TYPE_STATE_CHANGED = 14;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "INFO",
+//   "state": "...",
+//   "dialog_id": ...,
+//   "command_id": ...,
+//   "data": {
+//     "firmware": "...",
+//     "printer_type": "...",
+//     "sn": "...",
+//     "appendix": false,
+//     "fingerprint": "...",
+//     "nozzle_diameter": 0.4,
+//     "transfer_paused": false,
+//     "api_key": "...",
+//     "storages": [...],
+//     "network_info": {...},
+//     "tools": [...],
+//     "enclosure": {...},
+//     "mmu": {...},
+//     "addon_power": false,
+//     "slots": 1
+//   }
+// }
+//
+// Purpose:
+// Full printer information snapshot.
+message InfoPayload {
+  string firmware = 1;
+  string printer_type = 2;
+  string sn = 3;
+  bool appendix = 4;
+  string fingerprint = 5;
+  float nozzle_diameter = 6;
+  bool transfer_paused = 7;
+
+  // Legacy JSON key: data.api_key
+  // Historically derived from net creds in old code.
+  string api_key = 8;
+
+  repeated StorageInfo storages = 9;
+  NetworkInfo network_info = 10;
+  repeated ToolInfo tools = 11;
+  EnclosureInfo enclosure = 12;
+  MmuInfo mmu = 13;
+  bool addon_power = 14;
+  uint32 slots = 15;
+}
+
+message StorageInfo {
+  // Legacy JSON key: data.storages[].mountpoint
+  string mountpoint = 1;
+
+  // Legacy JSON key: data.storages[].type
+  string type = 2;
+
+  // Legacy JSON key: data.storages[].read_only
+  bool read_only = 3;
+
+  // Legacy JSON key: data.storages[].free_space
+  uint64 free_space = 4;
+
+  // Legacy JSON key: data.storages[].is_sfn
+  bool is_sfn = 5;
+}
+
+message NetworkInfo {
+  string lan_mac = 1;
+  string lan_ipv4 = 2;
+  string wifi_ssid = 3;
+  string wifi_mac = 4;
+  string wifi_ipv4 = 5;
+  string hostname = 6;
+}
+
+message ToolInfo {
+  uint32 slot = 1;
+  float nozzle_diameter = 2;
+  bool high_flow = 3;
+  bool hardened = 4;
+  string material = 5;
+}
+
+message EnclosureInfo {
+  bool enabled = 1;
+  bool printing_filtration = 2;
+  bool post_print = 3;
+  uint32 post_print_filtration_time = 4;
+  uint32 filter_lifetime = 5;
+  repeated string filtration_filaments = 6;
+}
+
+message MmuInfo {
+  bool enabled = 1;
+  string version = 2;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "ACCEPTED",
+//   "state": "...",
+//   "command_id": ...
+// }
+//
+// Purpose:
+// Positive acknowledgement for commands that historically used ACCEPTED rather
+// than FINISHED.
+message AcceptedPayload {
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "REJECTED",
+//   "state": "...",
+//   "command_id": ...,
+//   "reason": "..."
+// }
+// or, depending on rendering path, reason effectively appeared inside data-like
+// handling associated with the event.
+message RejectedPayload {
+  string reason = 1;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "JOB_INFO",
+//   "state": "PRINTING",
+//   "dialog_id": ...,
+//   "command_id": ...,
+//   "job_id": 123,
+//   "data": {
+//     "state": "PRINTING",
+//     "size": 123456,
+//     "m_timestamp": 1700000000,
+//     "display_name": "Part.gcode",
+//     "start_cmd_id": 42,
+//     "path": "/usb/PART.GCO"
+//   }
+// }
+message JobInfoPayload {
+  bool has_job_id = 1;
+  uint32 job_id = 2;
+
+  string state = 3;
+  uint64 size = 4;
+  uint64 m_timestamp = 5;
+  string display_name = 6;
+  uint32 start_cmd_id = 7;
+  string path = 8;
+}
+
+// Shared metadata describing a filesystem entry.
+message FileEntry {
+  // Legacy JSON key: name
+  string name = 1;
+
+  // Legacy JSON key: display_name
+  string display_name = 2;
+
+  // Legacy JSON key: size
+  uint64 size = 3;
+
+  // Legacy JSON key: m_timestamp
+  uint64 m_timestamp = 4;
+
+  // Legacy JSON key: read_only
+  bool read_only = 5;
+
+  // Legacy JSON key: type
+  string type = 6;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "FILE_INFO",
+//   "state": "...",
+//   "command_id": ...,
+//   "data": {
+//     "path": "/usb/...",
+//     "display_name": "...",
+//     "type": "FILE|FOLDER|...",
+//     "size": 123,
+//     "m_timestamp": 1700000000,
+//     "read_only": false,
+//     "children": [...],
+//     "file_count": 12
+//   }
+// }
+//
+// Important legacy behavior:
+// - when target was a directory, children could be streamed in JSON because the
+//   old renderer was segmented
+// - constrained protobuf implementation may need paging or capped child count
+message FileInfoPayload {
+  string path = 1;
+  string display_name = 2;
+  string type = 3;
+  uint64 size = 4;
+  uint64 m_timestamp = 5;
+  bool read_only = 6;
+  repeated FileEntry children = 7;
+  uint32 file_count = 8;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "FILE_CHANGED",
+//   "state": "...",
+//   "command_id": ...,
+//   "data": {
+//     "free_space": 123456,
+//     "new_path": "/usb/new.gcode",
+//     "old_path": "/usb/old.gcode",
+//     "rescan": true,
+//     "file": {
+//       "size": 123,
+//       "m_timestamp": 1700000000,
+//       "type": "FILE|FOLDER",
+//       "name": "NEW.GCO"
+//     }
+//   }
+// }
+message FileChangedPayload {
+  uint64 free_space = 1;
+  string new_path = 2;
+  string old_path = 3;
+  bool rescan = 4;
+  FileEntry file = 5;
+}
+
+// Transfer type values historically rendered by old transfer code.
+enum TransferType {
+  TRANSFER_TYPE_UNSPECIFIED = 0;
+  TRANSFER_TYPE_NO_TRANSFER = 1;
+  TRANSFER_TYPE_CONNECT = 2;
+  TRANSFER_TYPE_LINK = 3;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "TRANSFER_INFO",
+//   "state": "...",
+//   "command_id": ...,
+//   "data": {
+//     "size": 123456,
+//     "transferred": 1000,
+//     "progress": 1.2,
+//     "time_remaining": 999,
+//     "time_transferring": 10,
+//     "path": "/usb/file.gcode",
+//     "start_cmd_id": 42,
+//     "type": "CONNECT|LINK|NO_TRANSFER"
+//   }
+// }
+message TransferInfoPayload {
+  uint64 size = 1;
+  uint64 transferred = 2;
+  float progress = 3;
+  uint32 time_remaining = 4;
+  uint32 time_transferring = 5;
+  string path = 6;
+  bool has_start_cmd_id = 7;
+  uint32 start_cmd_id = 8;
+  TransferType type = 9;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "FINISHED",
+//   "state": "...",
+//   "command_id": ...
+// }
+message FinishedPayload {
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "FAILED",
+//   "state": "...",
+//   "command_id": ...,
+//   "reason": "..."
+// }
+message FailedPayload {
+  string reason = 1;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "TRANSFER_STOPPED",
+//   "state": "...",
+//   "command_id": ...,
+//   "data": {
+//     "start_cmd_id": 42
+//   }
+// }
+message TransferStoppedPayload {
+  bool has_start_cmd_id = 1;
+  uint32 start_cmd_id = 2;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "TRANSFER_ABORTED",
+//   "state": "...",
+//   "command_id": ...,
+//   "data": {
+//     "start_cmd_id": 42
+//   },
+//   "machine_reason": "STORAGE_FAILURE|NETWORK_FAILURE|..."
+// }
+message TransferAbortedPayload {
+  bool has_start_cmd_id = 1;
+  uint32 start_cmd_id = 2;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "TRANSFER_FINISHED",
+//   "state": "...",
+//   "command_id": ...,
+//   "data": {
+//     "start_cmd_id": 42
+//   }
+// }
+message TransferFinishedPayload {
+  bool has_start_cmd_id = 1;
+  uint32 start_cmd_id = 2;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "CANCELABLE_CHANGED",
+//   "state": "...",
+//   "data": {
+//     "objects": [
+//       { "canceled": false, "id": 0 },
+//       { "canceled": true, "id": 1 }
+//     ]
+//   }
+// }
+message CancelableObject {
+  uint32 id = 1;
+  bool canceled = 2;
+}
+
+message CancelableChangedPayload {
+  repeated CancelableObject objects = 1;
+}
+
+// Replaces legacy JSON event:
+// {
+//   "event": "STATE_CHANGED",
+//   "state": "...",
+//   "dialog_id": ...,
+//   "command_id": ...,
+//   "data": {
+//     "code": "12345",
+//     "title": "...",
+//     "text": "...",
+//     "buttons": ["YES", "NO"]
+//   }
+// }
+//
+// Legacy behavior:
+// - data object was sparse, fields were emitted only when present
+// - event frequency was based on a state fingerprint, not only visible state
+message StateChangedPayload {
+  bool has_code = 1;
+  string code = 2;
+
+  bool has_title = 3;
+  string title = 4;
+
+  bool has_text = 5;
+  string text = 6;
+
+  repeated DialogButton buttons = 7;
+}

@@ -1,0 +1,4 @@
+DebugMessageEnvelope.command_id type:FT_UINT32
+DebugMessageEnvelope.source max_length: 32
+DebugMessageEnvelope.message max_length: 256
+DebugMessageEnvelope.timestamp_ms type:FT_UINT64

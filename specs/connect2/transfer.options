@@ -1,0 +1,5 @@
+TransferChunkEnvelope.command_id type:FT_UINT32
+TransferChunkEnvelope.transfer_id type:FT_UINT32
+TransferChunkEnvelope.chunk_index type:FT_UINT32
+TransferChunkEnvelope.data max_size: 1024
+TransferChunkEnvelope.crc32 type:FT_UINT32

@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package connect2;
+
+// Raw G-code execution command sent from proxy/server to printer.
+//
+// MQTT topic:
+//   v1/devices/printers/<device_id>/gcode
+//
+// Legacy Connect WebSocket mapping:
+// - force=false corresponds to frame type 'G'
+// - force=true  corresponds to frame type 'F'
+message GcodeCommandEnvelope {
+  // Legacy command id associated with the request.
+  uint32 command_id = 1;
+
+  // False = normal G-code execute ('G'), true = forced execute ('F').
+  bool force = 2;
+
+  // Raw G-code payload (single or multi-line text).
+  string gcode = 3;
+}

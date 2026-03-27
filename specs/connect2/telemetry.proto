@@ -1,0 +1,121 @@
+syntax = "proto3";
+
+package connect2;
+
+// CONNECT2 telemetry protocol for printer-side MQTT transport.
+//
+// Legacy Connect used a standalone JSON telemetry message over WebSocket.
+// This was not an event. It had no "event" key and no event-specific payload
+// wrapper. It was a top-level JSON object rendered by src/connect/render.cpp
+// for SendTelemetry.
+//
+// Typical legacy JSON shape:
+// {
+//   "state": "IDLE",
+//   "job_id": 123,
+//   "time_printing": 456,
+//   "time_remaining": 789,
+//   "filament_change_in": 111,
+//   "progress": 12,
+//   "temp_nozzle": 215.0,
+//   "temp_bed": 60.0,
+//   "target_nozzle": 215.0,
+//   "target_bed": 60.0,
+//   "speed": 100,
+//   "flow": 100,
+//   "material": "PLA",
+//   "axis_x": 125.00,
+//   "axis_y": 105.00,
+//   "axis_z": 0.20,
+//   "fan_extruder": 2200,
+//   "fan_print": 1800,
+//   "filament": 23.4,
+//   "command_id": 42,
+//   "dialog_id": 7,
+//   "transfer_id": 99,
+//   "transfer_transferred": 1024,
+//   "transfer_time_remaining": 30,
+//   "transfer_progress": 12.3
+// }
+//
+// CONNECT2 goal:
+// - printer/mock publishes this as one protobuf message
+// - proxy translates it directly to the legacy JSON telemetry object
+// - no reconstruction from ad-hoc MQTT scalar topics is needed
+
+message TelemetryEnvelope {
+  // Legacy JSON top-level key: state
+  string state = 1;
+
+  bool has_job_id = 2;
+  uint32 job_id = 3;
+
+  bool has_time_printing = 4;
+  uint32 time_printing = 5;
+
+  bool has_time_remaining = 6;
+  uint32 time_remaining = 7;
+
+  bool has_filament_change_in = 8;
+  uint32 filament_change_in = 9;
+
+  bool has_progress = 10;
+  uint32 progress = 11;
+
+  bool has_temp_nozzle = 12;
+  float temp_nozzle = 13;
+
+  bool has_temp_bed = 14;
+  float temp_bed = 15;
+
+  bool has_target_nozzle = 16;
+  float target_nozzle = 17;
+
+  bool has_target_bed = 18;
+  float target_bed = 19;
+
+  bool has_speed = 20;
+  uint32 speed = 21;
+
+  bool has_flow = 22;
+  uint32 flow = 23;
+
+  bool has_material = 24;
+  string material = 25;
+
+  bool has_axis_x = 26;
+  float axis_x = 27;
+
+  bool has_axis_y = 28;
+  float axis_y = 29;
+
+  bool has_axis_z = 30;
+  float axis_z = 31;
+
+  bool has_fan_extruder = 32;
+  uint32 fan_extruder = 33;
+
+  bool has_fan_print = 34;
+  uint32 fan_print = 35;
+
+  bool has_filament = 36;
+  float filament = 37;
+
+  bool has_command_id = 38;
+  uint32 command_id = 39;
+
+  bool has_dialog_id = 40;
+  uint32 dialog_id = 41;
+
+  bool has_transfer_id = 42;
+  uint32 transfer_id = 43;
+
+  bool has_transfer_transferred = 44;
+  uint64 transfer_transferred = 45;
+
+  bool has_transfer_time_remaining = 46;
+  uint32 transfer_time_remaining = 47;
+
+  bool has_transfer_progress = 48;
+  float transfer_progress = 49;
+}
