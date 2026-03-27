@@ -13,14 +13,14 @@ def main() -> None:
     if not mqtt_cfg.get("enabled"):
         return
 
-    admin_pass = os.getenv("DYNSEC_ADMIN_PASSWORD")
-    if not admin_pass:
-        raise SystemExit("DYNSEC_ADMIN_PASSWORD must be set")
-
     control_user = mqtt_cfg.get("username")
     control_pass = mqtt_cfg.get("password")
     if not control_user or not control_pass or control_pass == "change-me":
-        raise SystemExit("mqtt.username/mqtt.password must be set in config.yaml")
+        raise SystemExit("mqtt.username/mqtt.password must be set in sandbox.yaml")
+
+    admin_pass = str(mqtt_cfg.get("password", ""))
+    if not admin_pass or admin_pass == "change-me":
+        raise SystemExit("mqtt.password must be set in sandbox.yaml")
 
     mqtt_cfg["username"] = "admin"
     mqtt_cfg["password"] = admin_pass

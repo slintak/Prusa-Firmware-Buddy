@@ -1,7 +1,7 @@
 [project]
-name = "oauth-mqtt-sandbox"
+name = "connect2-sandbox"
 version = "0.1.0"
-description = "Local sandbox for OAuth 2.0 Device Flow with MQTT."
+description = "Local CONNECT2 sandbox with OAuth, MQTT, and Connect proxy."
 requires-python = ">=3.10"
 readme = "README.md"
 license = "MIT"
@@ -14,6 +14,9 @@ dependencies = [
   "python-multipart>=0.0.9",
   "paho-mqtt>=1.6.1",
   "pyyaml>=6.0.1",
+  "protobuf>=5.29",
+  "grpcio-tools>=1.67",
+  "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
@@ -23,11 +26,17 @@ dev = [
 ]
 
 [project.scripts]
-server = "oauth_server.main:main"
+oauth-server = "oauth_server.main:main"
+connect-proxy = "connect_proxy.main:main"
+connect2-proto-compile = "proto_codegen:main"
 device_flow = "scripts.device_flow:main"
+mock-printer = "scripts.mock_printer:main"
+mock-server = "scripts.mock_server:main"
+mqtt-wire-logger = "scripts.mqtt_wire_logger:main"
 
 [tool.uv]
 package = true
 
 [tool.setuptools]
-packages = ["oauth_server", "scripts"]
+packages = ["oauth_server", "connect_proxy", "scripts"]
+py-modules = ["sandbox_config", "proto_codegen"]

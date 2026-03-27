@@ -1,9 +1,12 @@
-# oauth-mqtt-sandbox
+# connect2-sandbox
 
 **Minimal local sandbox** that bundles:
 - an OAuth 2.0 Device Flow server
 - a Mosquitto broker
 - automatic provisioning so the **access token becomes the MQTT password**
+
+The CONNECT2 proxy exists in this repo, but it runs as a **separate process**
+outside Docker Compose.
 
 This exists to make firmware and integration development easy. It is **not production-ready**,
 **not security-hardened**, and **not intended for production use**.
@@ -35,23 +38,43 @@ This is only a dev aid. Use a real OAuth/OIDC provider and hardened broker in pr
 ./scripts/generate_certs.sh ./certs 10.2.0.248
 ```
 
-2. Configure `config.yaml` (see `config.example.yaml` as template):
-- set `mqtt.enabled: true`
-- set `mqtt.username/password` (dynsec admin credentials)
+2. Prepare `sandbox.yaml` from `sandbox.yaml.example`:
+
+```bash
+cp sandbox.yaml.example sandbox.yaml
+```
+
+3. Configure `sandbox.yaml`:
+- set `proxy.upstream.url`
+- set `mqtt.password` to the dynsec admin password you want the broker initialized with
+- set `proxy.mqtt.password` to the same value
+- add as many printers as needed under `printers:`
+- OAuth only authorizes configured serial numbers
+- proxy configuration is still kept in the same file (for `uv run connect-proxy`)
 - set TLS paths under `oauth.tls` and `mqtt.tls`
 - keep `oauth.tls.ciphers: ECDHE-ECDSA-AES128-GCM-SHA256` (matches firmware TLS requirements)
 
-3. Run:
+4. Run sandbox services:
 
 ```bash
 docker compose up --build
 ```
 
+5. Run proxy separately (optional):
+
+```bash
+uv run connect-proxy
+```
+
+Broker persistence is disabled in this sandbox on purpose. Each restart starts
+with a clean MQTT state and a fresh dynsec database, which is more convenient
+for iterative protocol bring-up.
+
 ## Configuration
 
-Configuration is loaded from `config.yaml` (override with `OAUTH_CONFIG_PATH`).
+Configuration is loaded from `sandbox.yaml` (override with `OAUTH_CONFIG_PATH`).
 
-Key settings (see `config.yaml` for full structure):
+Key settings (see `sandbox.yaml.example` for full structure):
 
 - `oauth.public_base_url`: Base URL used in `verification_uri`.
 - `oauth.issuer_url`: Issuer for JWT tokens.
@@ -66,13 +89,20 @@ Key settings (see `config.yaml` for full structure):
 - `oauth.bind_host` / `oauth.bind_port`: Bind address and port.
 - `oauth.tls.*`: TLS cert/key for the OAuth server (optional). If set, OAuth uses HTTPS.
   - `oauth.tls.ciphers`: OpenSSL cipher string for OAuth HTTPS listener.
+- `printers[]`: Authoritative list of allowed printers. Each item contains:
+  - `serial_number`
+  - `device_id`
+  - `connect_token`
+  - `connect_fingerprint`
+  - `printer_model_id`
+  - `firmware_version`
 
 MQTT provisioning:
 
 - `mqtt.enabled`: Enables MQTT provisioning.
 - `mqtt.provisioner`: `mosquitto_ctrl` (default) or `control_topic`.
 - `mqtt.host` / `mqtt.port`: Mosquitto address (TLS on 8883).
-- `mqtt.username` / `mqtt.password`: Dynsec admin credentials (must match `DYNSEC_ADMIN_PASSWORD`).
+- `mqtt.username` / `mqtt.password`: Dynsec admin credentials used to initialize and manage Mosquitto dynsec.
 - `mqtt.tls.ca_file`: CA bundle for Mosquitto TLS.
 - `mqtt.tls.cert_file` / `mqtt.tls.key_file`: Optional client certs for mTLS.
 - `mqtt.control_topic`: Default `$CONTROL/dynamic-security/v1`.
@@ -81,6 +111,41 @@ MQTT provisioning:
 - `mqtt.device_role_per_client`: If true, creates per-device roles with `%u` expanded to device id.
 - `mqtt.device_acls`: ACLs for device role.
 - `mqtt.control_role` / `mqtt.control_acls`: Role for control user.
+
+Proxy (separate process):
+
+- `proxy.enabled`: Enables the CONNECT2 bridge process.
+- `proxy.mqtt.*`: MQTT connection used by the proxy to subscribe to printer
+  event topics and publish command topics.
+- `proxy.mqtt.online_topic`: Online/LWT topic used to create and tear down per-printer websocket sessions.
+- `proxy.upstream.url`: Production Connect WebSocket endpoint.
+- `proxy.upstream.insecure`: Disables TLS verification for the upstream websocket when needed for debugging.
+- Production Connect token is configured per printer in `printers[].connect_token`.
+- The proxy keeps a websocket pool keyed by configured printer UUID (`device_id`) when run via `uv run connect-proxy`.
+
+MQTT topic convention used by proxy and firmware/mock:
+
+- online/LWT: `v1/devices/printers/<device_id>/data/online`
+- printer events to proxy: `v1/devices/printers/<device_id>/event`
+- proxy/server commands to printer: `v1/devices/printers/<device_id>/cmd`
+
+Legacy Connect websocket handshake used by the proxy:
+
+- URL: typically `wss://connect.prusa3d.com/p/ws`
+- header `Token: <printer connect token>`
+- header `Fingerprint: <printers[].connect_fingerprint>`
+- websocket subprotocol: `prusa-connect`
+- header `User-Agent-Printer: <printers[].printer_model_id>`
+- header `User-Agent-Version: <printers[].firmware_version>`
+
+Header names and the websocket subprotocol are fixed by the backend contract.
+The `User-Agent-*` values come from `printers[]` so the proxy can mirror the
+real printer identity exactly.
+
+Sandbox proxy fingerprint rule:
+
+- the proxy uses the explicit per-printer `connect_fingerprint`
+- this must match the 16-character Buddy fingerprint header emitted by firmware
 
 ## OAuth Device Flow (curl)
 
@@ -153,6 +218,63 @@ Optional environment variables:
 - `OAUTH_CLIENT_ID` (default `test-client`)
 - `OAUTH_SCOPE` (default `mqtt`)
 - `OAUTH_INSECURE` set to `1` to disable hostname verification for CN-only certs
+
+## Mock Printer
+
+For proxy bring-up without firmware, use the built-in printer simulator:
+
+```bash
+uv run mock-printer SN123456789
+```
+
+What it does:
+- uses sandbox OAuth device flow with the configured printer serial number
+- receives an access token and MQTT username/device id
+- connects to MQTT like firmware
+- publishes `online=1`
+- publishes initial `INFO` and `STATE_CHANGED`
+- subscribes to `.../cmd`
+- handles full `command.proto` surface used by CONNECT2 mock flow, including:
+  - info/state/job/file/transfer queries
+  - print controls (`START/PAUSE/RESUME/STOP`, ready/idle/reset)
+  - filesystem ops (`CREATE_FOLDER`, `DELETE_FILE`, `DELETE_FOLDER`)
+  - transfer commands (`START_*_DOWNLOAD`, `STOP_TRANSFER`)
+  - dialog/set-value/cancel-object/token commands
+- emits matching protobuf events (`INFO`, `JOB_INFO`, `FILE_INFO`, `FILE_CHANGED`,
+  `TRANSFER_INFO`, `TRANSFER_*`, `CANCELABLE_CHANGED`, `STATE_CHANGED`,
+  `FINISHED`, `REJECTED`, `FAILED`)
+
+Useful overrides when running on the host:
+- `OAUTH_BASE_URL` default `https://127.0.0.1:8443`
+- `OAUTH_CA_FILE` default `./certs/ca.crt`
+- `OAUTH_INSECURE=1`
+- `MOCK_MQTT_HOST` default `127.0.0.1`
+- `MOCK_MQTT_PORT` default `8883`
+
+## Mock Server
+
+Interactive MQTT+protobuf server-side mock:
+
+```bash
+uv run mock-server --password change-me-admin --ca-file certs/ca.crt --insecure --storage-root /tmp/mocksrv
+```
+
+- left pane: RX/TX/ACK traffic (wrapped + colored)
+- right pane: selected printer state, telemetry, job/transfer projection, quick command help
+- supports interactive command palette for full command surface
+- mirrors file metadata under `--storage-root/<device_id>/files-index.json`
+
+One-shot mode (useful for scripting and dev):
+
+```bash
+uv run mock-server \
+  --password change-me-admin \
+  --ca-file certs/ca.crt \
+  --insecure \
+  --storage-root /tmp/mocksrv \
+  --command "select d77ff8ee-58f8-47ba-8638-ae7b4391a470" \
+  --command "info"
+```
 
 ## Curl Test Scripts
 
@@ -252,7 +374,7 @@ docker run --rm -p 8883:8883 -p 8443:8443 \
 docker compose up --build
 ```
 
-Edit `docker-compose.yml` and `config.yaml` to set credentials, TLS paths, and
+Edit `docker-compose.yml` and `sandbox.yaml` to set credentials, TLS paths, and
 ACLs.
 
 ## License

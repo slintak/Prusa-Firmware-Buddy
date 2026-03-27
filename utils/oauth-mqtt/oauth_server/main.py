@@ -16,6 +16,7 @@ from jwcrypto import jwk
 
 from oauth_server.config import load_config
 from oauth_server.mqtt_provisioning import init_provisioner, get_provisioner
+from sandbox_config import configured_printers
 
 logger = logging.getLogger("oauth_server")
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -25,6 +26,7 @@ app = FastAPI()
 CONFIG = load_config()
 OAUTH = CONFIG["oauth"]
 MQTT = CONFIG["mqtt"]
+PRINTERS = configured_printers(CONFIG)
 
 ISSUER_URL = OAUTH.get("issuer_url") or None
 PUBLIC_BASE_URL = OAUTH.get("public_base_url", "http://localhost:8443")
@@ -40,7 +42,14 @@ JWT_SUBJECT = str(OAUTH.get("jwt_subject", "sandbox-user"))
 JWT_EMAIL = str(OAUTH.get("jwt_email", "sandbox@example.com"))
 JWT_ACCOUNT_ID = int(OAUTH.get("jwt_account_id", 1))
 JWT_REFRESH_APP = str(OAUTH.get("jwt_refresh_app", "oauth-mqtt-sandbox"))
-SN_UUID_MAP = OAUTH.get("sn_uuid_map", {}) or {}
+SN_UUID_MAP = {
+    **{str(key): str(value) for key, value in (OAUTH.get("sn_uuid_map", {}) or {}).items()},
+    **{
+        printer["serial_number"]: printer["device_id"]
+        for printer in PRINTERS
+        if printer["serial_number"] and printer["device_id"]
+    },
+}
 
 USER_CODE_ALPHABET = string.ascii_uppercase + string.digits
 
@@ -76,7 +85,6 @@ refresh_by_token: Dict[str, RefreshState] = {}
 device_by_code: Dict[str, DeviceState] = {}
 user_code_map: Dict[str, str] = {}
 active_devices: Dict[str, int] = {}
-sn_to_uuid_map: Dict[str, str] = {}
 
 _cached_private_key: Optional[str] = None
 _cached_kid: Optional[str] = None
@@ -125,12 +133,7 @@ def _mqtt_username_from_sn(device_sn: Optional[str]) -> Optional[str]:
     # Explicit map has precedence (useful for fixed sandbox fixtures).
     if device_sn in SN_UUID_MAP:
         return str(SN_UUID_MAP[device_sn])
-    if device_sn in sn_to_uuid_map:
-        return sn_to_uuid_map[device_sn]
-    # Stable deterministic UUID for each SN in sandbox.
-    generated = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"sandbox-sn:{device_sn}"))
-    sn_to_uuid_map[device_sn] = generated
-    return generated
+    return None
 
 
 def _jwt_access_token(
@@ -333,9 +336,13 @@ async def token(
 
     incoming_sn = device_sn or sn or device_id
     if state.device_sn is None:
-        state.device_sn = incoming_sn or f"SN-{device_code[:8]}"
+        state.device_sn = incoming_sn
+    if not state.device_sn:
+        return JSONResponse(status_code=400, content={"error": "invalid_request", "error_description": "missing serial number"})
     if state.mqtt_username is None:
         state.mqtt_username = _mqtt_username_from_sn(state.device_sn)
+    if state.mqtt_username is None:
+        return JSONResponse(status_code=400, content={"error": "invalid_client", "error_description": "serial number not configured"})
     state.device_label = state.device_label or device_label
 
     if not state.approved:
@@ -402,7 +409,7 @@ async def startup() -> None:
     provisioner = get_provisioner()
     if provisioner and provisioner.enabled:
         if not MQTT.get("username") or not MQTT.get("password") or MQTT.get("password") == "change-me":
-            raise RuntimeError("mqtt.username/mqtt.password must be set in config.yaml")
+            raise RuntimeError("mqtt.username/mqtt.password must be set in sandbox.yaml")
         provisioner.connect()
 
     global _cleanup_task

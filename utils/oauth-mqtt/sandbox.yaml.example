@@ -1,35 +1,43 @@
+printers:
+  - serial_number: "SN123456789"
+    device_id: "11111111-2222-3333-4444-555555555555"
+    connect_token: "paste-production-connect-token-here"
+    connect_fingerprint: "2S9L1SISC9K2751A"
+    printer_model_id: "MK4S"
+    firmware_version: "6.2.6+8948"
+  - serial_number: "SN987654321"
+    device_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    connect_token: "another-production-connect-token"
+    connect_fingerprint: "NJ7DUQDFJ6CTBD5E"
+    printer_model_id: "MK4S"
+    firmware_version: "6.2.6+8948"
+
 oauth:
-  public_base_url: "https://localhost:8443"
+  public_base_url: "https://10.2.0.248:8443"
   issuer_url: ""
   token_format: "jwt"
-  # Optional PEM private key path (RS256). If empty, sandbox generates ephemeral
-  # in-memory RSA key at startup.
   jwt_private_key_path: ""
   jwt_kid: ""
   jwt_subject: "sandbox-user"
   jwt_email: "sandbox@example.com"
   jwt_account_id: 1
   jwt_refresh_app: "oauth-mqtt-sandbox"
-  # Optional explicit fixtures: stable SN -> UUID mapping.
   sn_uuid_map: {}
-  access_token_expires_in: 900
-  # <= 0 means no fixed expiry (valid until revocation).
+  access_token_expires_in: 1209600
   refresh_token_expires_in: 0
   device_code_expires_in: 600
-  poll_interval_seconds: 2
+  poll_interval_seconds: 5
   cleanup_interval_seconds: 10
-  keepalive_timeout_seconds: 30
   bind_host: "0.0.0.0"
   bind_port: 8443
   tls:
-    ca_file: ""
-    cert_file: ""
-    key_file: ""
-    # Must match FW-required cipher.
+    ca_file: "/certs/ca.crt"
+    cert_file: "/certs/server.crt"
+    key_file: "/certs/server.key"
     ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256"
 
 mqtt:
-  enabled: false
+  enabled: true
   provisioner: "mosquitto_ctrl"
   host: "localhost"
   port: 8883
@@ -38,10 +46,10 @@ mqtt:
   client_id: "oauth-control-client"
   keepalive: 30
   tls:
-    ca_file: ""
+    ca_file: "/certs/ca.crt"
     cert_file: ""
     key_file: ""
-    insecure: false
+    insecure: true
   control_topic: "$CONTROL/dynamic-security/v1"
   response_topic: "$CONTROL/dynamic-security/v1/response"
   device_role: "device-role"
@@ -73,3 +81,24 @@ mqtt:
     - acltype: "subscribePattern"
       topic: "$CONTROL/dynamic-security/#"
       allow: true
+
+proxy:
+  enabled: true
+  mqtt:
+    host: "sandbox"
+    port: 8883
+    username: "admin"
+    password: "change-me-admin"
+    client_id: "connect2-proxy"
+    keepalive: 30
+    event_topic: "v1/devices/printers/+/event"
+    online_topic: "v1/devices/printers/+/data/online"
+    command_topic_template: "v1/devices/printers/{device_id}/cmd"
+    tls:
+      ca_file: "/certs/ca.crt"
+      cert_file: ""
+      key_file: ""
+      insecure: true
+  upstream:
+    url: "wss://connect.prusa3d.com/p/ws"
+    insecure: false
