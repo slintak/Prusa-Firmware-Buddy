@@ -1,6 +1,7 @@
 #include "device_flow.hpp"
 
 #include <common/tls/tls.hpp>
+#include <common/timing.h>
 #include <http/connect_error.h>
 #include <http/httpc.hpp>
 #include <logging/log.hpp>
@@ -26,7 +27,7 @@ constexpr uint8_t TLS_TIMEOUT_S = 30;
 constexpr uint16_t HTTPS_DEFAULT_PORT = 443;
 constexpr size_t HOST_BUF_LEN = 96;
 constexpr size_t PATH_BUF_LEN = 192;
-constexpr size_t REQ_BODY_BUF_LEN = 384;
+constexpr size_t REQ_BODY_BUF_LEN = 2048;
 constexpr size_t RESP_BODY_BUF_LEN = 4096;
 constexpr size_t TOKENS_COUNT = 64;
 
@@ -147,7 +148,7 @@ public:
 
 private:
     const char *url_;
-    char body_[384] = {};
+    char body_[REQ_BODY_BUF_LEN] = {};
     bool sent_ = false;
 };
 
@@ -257,13 +258,25 @@ bool parse_https_url(const char *url, char *host_out, size_t host_out_len, uint1
 
 bool send_form_post(const char *host, uint16_t port, bool custom_cert, const char *path, const char *body,
     char *resp_body, size_t resp_body_len, http::Status &status_out) {
-    TlsConnectionFactory factory(host, port, custom_cert);
-    http::HttpClient client(factory);
-    FormPostRequest req(path, body);
-    auto result = client.send(req);
+    auto factory = std::make_unique<TlsConnectionFactory>(host, port, custom_cert);
+    if (!factory) {
+        log_info(oauth_df, "http setup failed: no memory for factory");
+        return false;
+    }
+    auto client = std::make_unique<http::HttpClient>(*factory);
+    if (!client) {
+        log_info(oauth_df, "http setup failed: no memory for client");
+        return false;
+    }
+    auto req = std::make_unique<FormPostRequest>(path, body);
+    if (!req) {
+        log_info(oauth_df, "http setup failed: no memory for request");
+        return false;
+    }
+    auto result = client->send(*req);
     if (std::holds_alternative<http::Error>(result)) {
         log_info(oauth_df, "http send failed: %s host=%s port=%u path=%s", http::to_str(std::get<http::Error>(result)), host, static_cast<unsigned>(port), path);
-        factory.invalidate();
+        factory->invalidate();
         return false;
     }
 
@@ -281,13 +294,13 @@ bool send_form_post(const char *host, uint16_t port, bool custom_cert, const cha
         log_info(oauth_df, "http read failed: %s host=%s port=%u path=%s status=%u",
             http::to_str(std::get<http::Error>(read_res)),
             host, static_cast<unsigned>(port), path, static_cast<unsigned>(status_out));
-        factory.invalidate();
+        factory->invalidate();
         return false;
     }
 
     const size_t read_len = std::get<size_t>(read_res);
     resp_body[read_len] = '\0';
-    factory.invalidate();
+    factory->invalidate();
     return true;
 }
 
@@ -334,6 +347,43 @@ bool set_error(Error *error, Error value) {
     }
     return false;
 }
+
+bool parse_token_json(const char *json, http::Status status, Tokens &out, uint32_t &interval_s, Error *error) {
+    jsmn_parser parser;
+    jsmn_init(&parser);
+    memset(scratch.tokens, 0, sizeof(scratch.tokens));
+    const int count = jsmn_parse(&parser, json, strlen(json), scratch.tokens, static_cast<unsigned>(std::size(scratch.tokens)));
+    if (count < 1) {
+        return set_error(error, Error::ParseError);
+    }
+
+    if (status == http::Status::Ok) {
+        const bool have_access = json_get_string(json, scratch.tokens, count, "access_token", out.access_token, sizeof(out.access_token));
+        const bool have_refresh = json_get_string(json, scratch.tokens, count, "refresh_token", out.refresh_token, sizeof(out.refresh_token));
+        out.expires_in_s = 0;
+        (void)json_get_u32(json, scratch.tokens, count, "expires_in", out.expires_in_s);
+        if (!have_access || !have_refresh) {
+            return set_error(error, Error::MissingField);
+        }
+        return true;
+    }
+
+    memset(scratch.response_error, 0, sizeof(scratch.response_error));
+    if (!json_get_string(json, scratch.tokens, count, "error", scratch.response_error, sizeof(scratch.response_error))) {
+        return set_error(error, Error::ResponseError);
+    }
+    if (strcmp(scratch.response_error, "authorization_pending") == 0) {
+        return false;
+    }
+    if (strcmp(scratch.response_error, "slow_down") == 0) {
+        interval_s += 5;
+        return false;
+    }
+    if (strcmp(scratch.response_error, "access_denied") == 0) {
+        return set_error(error, Error::AuthorizationDenied);
+    }
+    return set_error(error, Error::ResponseError);
+}
 } // namespace
 
 const char *to_str(Error error) {
@@ -352,6 +402,8 @@ const char *to_str(Error error) {
         return "missing_field";
     case Error::AuthorizationDenied:
         return "authorization_denied";
+    case Error::Canceled:
+        return "canceled";
     case Error::PollingTimeout:
         return "polling_timeout";
     case Error::ResponseError:
@@ -428,8 +480,19 @@ bool poll_tokens(const DeviceFlowConfig &cfg, const DeviceCode &device_code, Tok
         interval_s = 2;
     }
     const char *sn = (cfg.serial_number && cfg.serial_number[0] != '\0') ? cfg.serial_number : "UNKNOWN_SN";
+    const uint32_t timeout_s = cfg.poll_timeout_s > 0 ? cfg.poll_timeout_s : (30 * 60);
+    const uint32_t started_ms = ticks_ms();
+    uint8_t attempts = 0;
 
-    for (uint8_t attempt = 0; attempt < cfg.max_poll_attempts; ++attempt) {
+    while (true) {
+        if (cfg.max_poll_attempts > 0 && attempts >= cfg.max_poll_attempts) {
+            return set_error(error, Error::PollingTimeout);
+        }
+        if ((ticks_ms() - started_ms) >= (timeout_s * 1000U)) {
+            return set_error(error, Error::PollingTimeout);
+        }
+        ++attempts;
+
         memset(scratch.req_body, 0, sizeof(scratch.req_body));
         snprintf(scratch.req_body, sizeof(scratch.req_body),
             "grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=%s&client_id=%s&sn=%s",
@@ -443,45 +506,116 @@ bool poll_tokens(const DeviceFlowConfig &cfg, const DeviceCode &device_code, Tok
             continue;
         }
 
-        jsmn_parser parser;
-        jsmn_init(&parser);
-        memset(scratch.tokens, 0, sizeof(scratch.tokens));
-        const int count = jsmn_parse(&parser, scratch.resp_body, strlen(scratch.resp_body), scratch.tokens, static_cast<unsigned>(std::size(scratch.tokens)));
-        if (count < 1) {
-            return set_error(error, Error::ParseError);
-        }
-
-        if (status == http::Status::Ok) {
-            const bool have_access = json_get_string(scratch.resp_body, scratch.tokens, count, "access_token", out.access_token, sizeof(out.access_token));
-            const bool have_refresh = json_get_string(scratch.resp_body, scratch.tokens, count, "refresh_token", out.refresh_token, sizeof(out.refresh_token));
-            out.expires_in_s = 0;
-            (void)json_get_u32(scratch.resp_body, scratch.tokens, count, "expires_in", out.expires_in_s);
-            if (!have_access || !have_refresh) {
-                return set_error(error, Error::MissingField);
-            }
+        if (parse_token_json(scratch.resp_body, status, out, interval_s, error)) {
             return true;
         }
+        if (error != nullptr && *error != Error::None) {
+            return false;
+        }
+        osDelay(interval_s * 1000U);
+    }
+}
 
-        memset(scratch.response_error, 0, sizeof(scratch.response_error));
-        if (!json_get_string(scratch.resp_body, scratch.tokens, count, "error", scratch.response_error, sizeof(scratch.response_error))) {
-            return set_error(error, Error::ResponseError);
-        }
-        if (strcmp(scratch.response_error, "authorization_pending") == 0) {
-            osDelay(interval_s * 1000U);
-            continue;
-        }
-        if (strcmp(scratch.response_error, "slow_down") == 0) {
-            interval_s += 5;
-            osDelay(interval_s * 1000U);
-            continue;
-        }
-        if (strcmp(scratch.response_error, "access_denied") == 0) {
-            return set_error(error, Error::AuthorizationDenied);
-        }
+bool run_device_flow(const DeviceFlowConfig &cfg, DeviceCode &device_code, Tokens &out,
+    Error *error, void (*on_device_code)(const DeviceCode &, void *), void *on_device_code_ctx,
+    bool (*should_abort)(void *), void *should_abort_ctx) {
+    if (error) {
+        *error = Error::None;
+    }
+    if (cfg.device_auth_url == nullptr || cfg.token_url == nullptr || cfg.client_id == nullptr || cfg.client_id[0] == '\0') {
+        return set_error(error, Error::InvalidConfig);
+    }
+
+    scratch = {};
+    char token_host[HOST_BUF_LEN] = {};
+    char token_path[PATH_BUF_LEN] = {};
+    uint16_t auth_port = 0;
+    uint16_t token_port = 0;
+
+    if (!parse_https_url(cfg.device_auth_url, scratch.host, sizeof(scratch.host), auth_port, scratch.path, sizeof(scratch.path))) {
+        return set_error(error, Error::InvalidUrl);
+    }
+    if (!parse_https_url(cfg.token_url, token_host, sizeof(token_host), token_port, token_path, sizeof(token_path))) {
+        return set_error(error, Error::InvalidUrl);
+    }
+    if (strcmp(scratch.host, token_host) != 0 || auth_port != token_port) {
+        return set_error(error, Error::InvalidConfig);
+    }
+
+    TlsConnectionFactory factory(scratch.host, auth_port, cfg.custom_cert);
+    http::HttpClient client(factory);
+
+    memset(scratch.req_body, 0, sizeof(scratch.req_body));
+    snprintf(scratch.req_body, sizeof(scratch.req_body), "client_id=%s&scope=%s", cfg.client_id, cfg.scope ? cfg.scope : "mqtt");
+    http::Status status = http::Status::UnknownStatus;
+    if (!send_form_post_keep_alive(client, factory, scratch.host, auth_port, scratch.path, scratch.req_body, scratch.resp_body, sizeof(scratch.resp_body), status)) {
+        return set_error(error, Error::HttpError);
+    }
+    if (status != http::Status::Ok) {
         return set_error(error, Error::ResponseError);
     }
 
-    return set_error(error, Error::PollingTimeout);
+    jsmn_parser parser;
+    jsmn_init(&parser);
+    memset(scratch.tokens, 0, sizeof(scratch.tokens));
+    const int tok_count = jsmn_parse(&parser, scratch.resp_body, strlen(scratch.resp_body), scratch.tokens, static_cast<unsigned>(std::size(scratch.tokens)));
+    if (tok_count < 1) {
+        return set_error(error, Error::ParseError);
+    }
+
+    const bool have_device_code = json_get_string(scratch.resp_body, scratch.tokens, tok_count, "device_code", device_code.device_code, sizeof(device_code.device_code));
+    const bool have_user_code = json_get_string(scratch.resp_body, scratch.tokens, tok_count, "user_code", device_code.user_code, sizeof(device_code.user_code));
+    const bool have_uri = json_get_string(scratch.resp_body, scratch.tokens, tok_count, "verification_uri", device_code.verification_uri, sizeof(device_code.verification_uri));
+    device_code.interval_s = cfg.initial_poll_interval_s;
+    (void)json_get_u32(scratch.resp_body, scratch.tokens, tok_count, "interval", device_code.interval_s);
+    if (!have_device_code || !have_user_code || !have_uri) {
+        return set_error(error, Error::MissingField);
+    }
+    if (on_device_code != nullptr) {
+        on_device_code(device_code, on_device_code_ctx);
+    }
+
+    uint32_t interval_s = device_code.interval_s > 0 ? device_code.interval_s : cfg.initial_poll_interval_s;
+    if (interval_s < 2) {
+        interval_s = 2;
+    }
+    const char *sn = (cfg.serial_number && cfg.serial_number[0] != '\0') ? cfg.serial_number : "UNKNOWN_SN";
+    const uint32_t timeout_s = cfg.poll_timeout_s > 0 ? cfg.poll_timeout_s : (30 * 60);
+    const uint32_t started_ms = ticks_ms();
+    uint8_t attempts = 0;
+
+    while (true) {
+        if (should_abort != nullptr && should_abort(should_abort_ctx)) {
+            return set_error(error, Error::Canceled);
+        }
+        if (cfg.max_poll_attempts > 0 && attempts >= cfg.max_poll_attempts) {
+            return set_error(error, Error::PollingTimeout);
+        }
+        if ((ticks_ms() - started_ms) >= (timeout_s * 1000U)) {
+            return set_error(error, Error::PollingTimeout);
+        }
+        ++attempts;
+
+        memset(scratch.req_body, 0, sizeof(scratch.req_body));
+        snprintf(scratch.req_body, sizeof(scratch.req_body),
+            "grant_type=urn:ietf:params:oauth:grant-type:device_code&device_code=%s&client_id=%s&sn=%s",
+            device_code.device_code, cfg.client_id, sn);
+
+        memset(scratch.resp_body, 0, sizeof(scratch.resp_body));
+        status = http::Status::UnknownStatus;
+        if (!send_form_post_keep_alive(client, factory, scratch.host, auth_port, token_path, scratch.req_body, scratch.resp_body, sizeof(scratch.resp_body), status)) {
+            osDelay(interval_s * 1000U);
+            continue;
+        }
+
+        if (parse_token_json(scratch.resp_body, status, out, interval_s, error)) {
+            return true;
+        }
+        if (error != nullptr && *error != Error::None) {
+            return false;
+        }
+        osDelay(interval_s * 1000U);
+    }
 }
 
 bool refresh_tokens(const DeviceFlowConfig &cfg, const char *refresh_token, Tokens &out, Error *error) {
@@ -519,20 +653,16 @@ bool refresh_tokens(const DeviceFlowConfig &cfg, const char *refresh_token, Toke
         return set_error(error, Error::ResponseError);
     }
 
-    char new_access[sizeof(out.access_token)] = {};
-    char new_refresh[sizeof(out.refresh_token)] = {};
-    const bool have_access = json_get_string(scratch.resp_body, scratch.tokens, count, "access_token", new_access, sizeof(new_access));
-    const bool have_refresh = json_get_string(scratch.resp_body, scratch.tokens, count, "refresh_token", new_refresh, sizeof(new_refresh));
+    const bool have_access = json_get_string(scratch.resp_body, scratch.tokens, count, "access_token", out.access_token, sizeof(out.access_token));
+    const bool have_refresh = json_get_string(scratch.resp_body, scratch.tokens, count, "refresh_token", out.refresh_token, sizeof(out.refresh_token));
     out.expires_in_s = 0;
     (void)json_get_u32(scratch.resp_body, scratch.tokens, count, "expires_in", out.expires_in_s);
 
     if (!have_access) {
         return set_error(error, Error::MissingField);
     }
-
-    strlcpy(out.access_token, new_access, sizeof(out.access_token));
-    if (have_refresh) {
-        strlcpy(out.refresh_token, new_refresh, sizeof(out.refresh_token));
+    if (!have_refresh) {
+        // Refresh token might be omitted by server; keep caller-provided token.
     }
     return true;
 }

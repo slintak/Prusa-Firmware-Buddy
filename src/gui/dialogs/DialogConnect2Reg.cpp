@@ -4,6 +4,7 @@
 #include "../img_resources.hpp"
 #include "../ScreenHandler.hpp"
 #include "../lang/i18n.h"
+#include <window_msgbox.hpp>
 
 #include <guiconfig/wizard_config.hpp>
 
@@ -11,7 +12,8 @@ namespace {
 constexpr const char *HEADER_LABEL = N_("PRUSA CONNECT");
 
 const PhaseResponses dlg_responses = { Response::Continue, Response::_none, Response::_none, Response::_none };
-const PhaseTexts dlg_texts = { { N_("Leave") } };
+const PhaseTexts dlg_texts_cancel = { { N_("Cancel") } };
+const PhaseTexts dlg_texts_ok = { { N_("OK") } };
 
 constexpr Rect16 qr_rect() {
     return Rect16 { GuiDefaults::ScreenWidth - WizardDefaults::MarginRight - 140, WizardDefaults::row_1 + 5, 140, 140 };
@@ -38,7 +40,7 @@ DialogConnect2Register::DialogConnect2Register()
     , qr_(this, qr_rect(), Align_t::Center())
     , text_state_(this, state_rect(), is_multiline::yes)
     , text_detail_(this, detail_rect(), is_multiline::yes)
-    , button_(this, WizardDefaults::RectRadioButton(0), dlg_responses, &dlg_texts) {
+    , button_(this, WizardDefaults::RectRadioButton(0), dlg_responses, &dlg_texts_cancel) {
     text_state_.SetAlignment(Align_t::Left());
     text_detail_.SetAlignment(Align_t::Left());
 
@@ -120,34 +122,81 @@ void DialogConnect2Register::windowEvent(window_t *sender, GUI_event_t event, vo
     AutoRestore avoid_recursion(event_in_progress_, true);
 
     switch (event) {
-    case GUI_event_t::CHILD_CLICK:
+    case GUI_event_t::CHILD_CLICK: {
+        bool close = true;
+        if (!registration_done_
+            && (last_status_.status == connect2_client::ConnectionStatus::Authorizing
+                || last_status_.status == connect2_client::ConnectionStatus::Connecting)) {
+            close = MsgBoxWarning(_("Prusa Connect setup is not finished. Do you want to exit and abort the process?"), Responses_YesNo)
+                == Response::Yes;
+            if (close) {
+                connect2_client::cancel_registration();
+            }
+        }
+        if (!close) {
+            return;
+        }
         Screens::Access()->Close();
         return;
+    }
     case GUI_event_t::LOOP: {
         const auto status = connect2_client::last_status();
         const auto reg = connect2_client::registration_info();
+        const auto set_button_mode = [this](bool terminal) {
+            if (terminal_button_mode_ == terminal) {
+                return;
+            }
+            terminal_button_mode_ = terminal;
+            button_.Change(dlg_responses, terminal ? &dlg_texts_ok : &dlg_texts_cancel);
+        };
 
-        if (status.status == connect2_client::ConnectionStatus::Authorizing && reg.available) {
+        if (status.status == connect2_client::ConnectionStatus::Authorizing
+            || status.status == connect2_client::ConnectionStatus::Connecting) {
+            registration_started_ = true;
+        }
+
+        if (registration_started_ && status.status == connect2_client::ConnectionStatus::Online) {
+            registration_done_ = true;
+            set_button_mode(true);
+            hide_qr();
+            text_state_.SetText(_("Registration successful. Printer is now connected."));
+            text_state_.Invalidate();
+            text_detail_.Hide();
+        } else if (registration_done_) {
+            // Keep successful final screen stable even if connection state flips briefly.
+        } else if (registration_started_ && status.status == connect2_client::ConnectionStatus::Authorizing && reg.available) {
+            set_button_mode(false);
+            code_received_ = true;
             show_qr(reg.verification_url_with_code);
             text_state_.SetText(_("Scan the QR code and complete sign-in."));
             text_state_.Invalidate();
             set_code_text(reg.user_code);
-        } else if (status.status == connect2_client::ConnectionStatus::Connecting) {
+        } else if (registration_started_ && status.status == connect2_client::ConnectionStatus::Authorizing) {
+            set_button_mode(false);
+            if (code_received_) {
+                text_state_.SetText(_("Waiting for confirmation in browser..."));
+            } else {
+                hide_qr();
+                text_state_.SetText(_("Waiting for pairing code..."));
+            }
+            text_state_.Invalidate();
+            if (!code_received_) {
+                text_detail_.Hide();
+            }
+        } else if (registration_started_ && status.status == connect2_client::ConnectionStatus::Connecting) {
+            set_button_mode(false);
             hide_qr();
             text_state_.SetText(_("Code accepted. Finalizing registration..."));
             text_state_.Invalidate();
             text_detail_.Hide();
-        } else if (status.status == connect2_client::ConnectionStatus::Online) {
-            hide_qr();
-            text_state_.SetText(_("Registration in progress..."));
-            text_state_.Invalidate();
-            text_detail_.Hide();
         } else if (status.status == connect2_client::ConnectionStatus::AuthRequired) {
+            set_button_mode(true);
             hide_qr();
             text_state_.SetText(_("Authorization required. Start registration again."));
             text_state_.Invalidate();
             text_detail_.Hide();
         } else if (status.status == connect2_client::ConnectionStatus::Error) {
+            set_button_mode(true);
             hide_qr();
             snprintf(state_buffer_, sizeof(state_buffer_), "Registration failed: %s", to_error_text(status.error));
             text_state_.SetText(string_view_utf8::MakeRAM(state_buffer_));

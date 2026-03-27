@@ -15,7 +15,7 @@ LOG_COMPONENT_REF(connect2);
 namespace connect2_client {
 
 namespace {
-constexpr const char *OAUTH_TOKENS_PATH = "/internal/connect/oauth_tokens.cfg";
+constexpr const char *OAUTH_TOKENS_PATH = "/internal/connect2/oauth_tokens.cfg";
 }
 
 bool load_oauth_storage(OAuthStorageData &out) {
@@ -66,7 +66,7 @@ bool load_oauth_storage(OAuthStorageData &out) {
 }
 
 bool save_oauth_storage(const OAuthStorageData &in) {
-    mkdir("/internal/connect", 0777);
+    mkdir("/internal/connect2", 0777);
     unique_file_ptr f(fopen(OAUTH_TOKENS_PATH, "wb"));
     if (!f) {
         log_info(connect2, "oauth storage open failed path=%s errno=%d", OAUTH_TOKENS_PATH, errno);

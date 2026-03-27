@@ -143,6 +143,12 @@ static uint32_t __attribute__((section(".ccmram"))) displayTask_buffer[displayTa
 static StaticTask_t __attribute__((section(".ccmram"))) displayTask_control;
 #endif
 
+#if BUDDY_ENABLE_CONNECT2()
+static constexpr size_t connect2Task_stacksz = 3072; // in words
+static uint32_t connect2Task_buffer[connect2Task_stacksz];
+static StaticTask_t connect2Task_control;
+#endif
+
 unsigned HAL_RCC_CSR = 0;
 int HAL_GPIO_Initialized = 0;
 int HAL_ADC_Initialized = 0;
@@ -296,7 +302,8 @@ extern "C" void main_cpp(void) {
     osThreadCCMDef(connectTask, want_error_screen ? StartConnectTaskError : StartConnectTask, TASK_PRIORITY_CONNECT, 0, 2336);
 #endif
 #if BUDDY_ENABLE_CONNECT2()
-    osThreadCCMDef(connect2Task, StartConnect2Task, TASK_PRIORITY_CONNECT, 0, 2336);
+    // Keep CONNECT2 off CCM, but allocate its stack statically in regular RAM.
+    osThreadStaticDef(connect2Task, StartConnect2Task, TASK_PRIORITY_CONNECT, 0, connect2Task_stacksz, connect2Task_buffer, &connect2Task_control);
 #endif
 
 #if HAS_NFC()

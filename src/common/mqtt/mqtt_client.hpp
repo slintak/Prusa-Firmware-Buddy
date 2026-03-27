@@ -38,14 +38,23 @@ public:
     void disconnect();
     void step();
     bool is_connected() const;
+    bool subscribe(const char *topic, uint8_t qos);
     bool publish(const char *topic, const char *payload, uint8_t publish_flags);
+    bool publish_raw(const char *topic, const uint8_t *payload, size_t payload_len, uint8_t publish_flags);
     enum MQTTErrors last_error() const;
 
+    using PublishCallback = void (*)(void *ctx, const char *topic, size_t topic_len,
+        const uint8_t *payload, size_t payload_len, uint8_t qos, bool retain, bool dup);
+    void set_publish_callback(PublishCallback cb, void *ctx);
+
 private:
+    static void publish_callback_thunk(void **state, struct mqtt_response_publish *publish);
     Config cfg_;
     bool connected_ = false;
     bool connect_inflight_ = false;
     bool initialized_ = false;
+    PublishCallback publish_cb_ = nullptr;
+    void *publish_cb_ctx_ = nullptr;
     uint32_t last_sync_ms_ = 0;
     uint32_t last_ping_ms_ = 0;
     std::unique_ptr<Transport> owned_transport_;

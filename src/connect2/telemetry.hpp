@@ -18,6 +18,11 @@ public:
     void reset();
     void tick(uint32_t now_ms, buddy::mqtt::Client &mqtt_client);
     bool build_online_topic(char *buffer, size_t buffer_size) const;
+    bool build_command_topic(char *buffer, size_t buffer_size) const;
+    bool build_gcode_topic(char *buffer, size_t buffer_size) const;
+    bool build_transfer_topic(char *buffer, size_t buffer_size) const;
+    bool build_debug_command_topic(char *buffer, size_t buffer_size) const;
+    bool build_event_topic(char *buffer, size_t buffer_size) const;
     void set_identity(const char *identity);
 
 private:

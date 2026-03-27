@@ -191,12 +191,39 @@ else()
 endif()
 define_boolean_option(BUDDY_ENABLE_CONNECT ${CONNECT})
 
-# Set connect2 status/availability (experimental)
+# Printer Protocol 3.0 (MQTT + Protobuf)
+# Backward compatibility:
+# - Existing presets/users may still pass CONNECT2=YES/NO.
+# - New canonical cache option is PRINTER_PROTOCOL_3.
+if(NOT DEFINED PRINTER_PROTOCOL_3)
+  if(DEFINED CONNECT2)
+    set(PRINTER_PROTOCOL_3
+        "${CONNECT2}"
+        CACHE BOOL "Enable Printer Protocol 3.0 client (MQTT + Protobuf)"
+        )
+  else()
+    set(PRINTER_PROTOCOL_3
+        "NO"
+        CACHE BOOL "Enable Printer Protocol 3.0 client (MQTT + Protobuf)"
+        )
+  endif()
+endif()
+
+# Keep legacy CONNECT2 cmake variable in sync so existing CMake logic keeps working.
 set(CONNECT2
-    "NO"
-    CACHE BOOL "Enable Connect2 client (MQTT)"
+    "${PRINTER_PROTOCOL_3}"
+    CACHE BOOL "Enable Connect2 client (legacy alias for Printer Protocol 3.0)"
+    FORCE
     )
 define_boolean_option(BUDDY_ENABLE_CONNECT2 ${CONNECT2})
+define_boolean_option(BUDDY_ENABLE_PRINTER_PROTOCOL_3 ${PRINTER_PROTOCOL_3})
+
+# PP3 periodic protobuf telemetry (events/commands remain enabled regardless).
+set(PRINTER_PROTOCOL_3_PERIODIC_TELEMETRY
+    "NO"
+    CACHE BOOL "Enable periodic Printer Protocol 3.0 protobuf telemetry publishing"
+    )
+define_boolean_option(BUDDY_ENABLE_PRINTER_PROTOCOL_3_PERIODIC_TELEMETRY ${PRINTER_PROTOCOL_3_PERIODIC_TELEMETRY})
 
 # Resolve BUILD_NUMBER and PROJECT_VERSION_* variables
 resolve_version_variables()
@@ -215,6 +242,8 @@ message(STATUS "MCU: ${MCU}")
 message(STATUS "Custom Compile Options (C/C++ flags): ${CUSTOM_COMPILE_OPTIONS}")
 message(STATUS "Web User Interface: ${WUI}")
 message(STATUS "Connect client: ${CONNECT}")
+message(STATUS "Printer Protocol 3.0 client: ${PRINTER_PROTOCOL_3}")
+message(STATUS "Printer Protocol 3.0 periodic telemetry: ${PRINTER_PROTOCOL_3_PERIODIC_TELEMETRY}")
 message(STATUS "Resources: ${RESOURCES}")
 
 # Set printer features

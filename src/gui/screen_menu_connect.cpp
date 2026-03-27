@@ -130,11 +130,14 @@ MI_CONNECT_HOST::MI_CONNECT_HOST()
 
 void MI_CONNECT_HOST::Loop() {
     std::array<char, GetInfoLen()> hostname;
-    strlcpy(hostname.data(), config_store().connect_host.get_c_str(), hostname.size());
 #if BUDDY_ENABLE_CONNECT2()
-    connect2_client::decompress_host(hostname.data(), hostname.size());
+    const auto cfg = connect2_client::load_config();
+    strlcpy(hostname.data(), cfg.host, hostname.size());
 #elif BUDDY_ENABLE_CONNECT()
+    strlcpy(hostname.data(), config_store().connect_host.get_c_str(), hostname.size());
     connect_client::decompress_host(hostname.data(), hostname.size());
+#else
+    hostname[0] = '\0';
 #endif
     ChangeInformation(hostname.data());
 }

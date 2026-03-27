@@ -26,6 +26,10 @@ void request_registration() {
     g_client.request_registration();
 }
 
+void cancel_registration() {
+    g_client.cancel_registration();
+}
+
 bool has_stored_auth() {
     return g_client.has_stored_auth();
 }

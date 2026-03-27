@@ -2,12 +2,19 @@
 
 #include <connect/marlin_printer.hpp>
 #include <connect/printer_common.hpp>
+#include <option/buddy_enable_printer_protocol_3_periodic_telemetry.h>
 #include <marlin_server_shared.h>
 #include <otp.hpp>
 #include <state/printer_state.hpp>
 
 #include <common/mqtt/mqtt_client.hpp>
+#include <logging/log.hpp>
 #include <support_utils.h>
+#include "telemetry.pb.h"
+
+extern "C" {
+#include "pb_encode.h"
+}
 
 #include <cmath>
 #include <cstdio>
@@ -18,6 +25,8 @@ extern "C" {
 }
 
 namespace connect2_client {
+
+LOG_COMPONENT_REF(connect2);
 
 namespace {
 constexpr uint32_t TELEMETRY_INTERVAL_MIN = 750;
@@ -68,6 +77,38 @@ bool make_dialog_topic(char *buffer, size_t buffer_size, const char *printer_id)
     return written > 0 && static_cast<size_t>(written) < buffer_size;
 }
 
+#if BUDDY_ENABLE_PRINTER_PROTOCOL_3_PERIODIC_TELEMETRY()
+bool make_telemetry_topic(char *buffer, size_t buffer_size, const char *printer_id) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/telemetry", printer_id);
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+#endif
+
+bool make_command_topic(char *buffer, size_t buffer_size, const char *printer_id) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/cmd", printer_id);
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
+bool make_gcode_topic(char *buffer, size_t buffer_size, const char *printer_id) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/gcode", printer_id);
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
+bool make_transfer_topic(char *buffer, size_t buffer_size, const char *printer_id) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/transfer", printer_id);
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
+bool make_debug_command_topic(char *buffer, size_t buffer_size, const char *printer_id) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/debug", printer_id);
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
+bool make_event_topic(char *buffer, size_t buffer_size, const char *printer_id) {
+    const int written = snprintf(buffer, buffer_size, "v1/devices/printers/%s/event", printer_id);
+    return written > 0 && static_cast<size_t>(written) < buffer_size;
+}
+
 uint8_t publish_flags(uint8_t qos, bool retain) {
     uint8_t flags = MQTT_PUBLISH_QOS_0;
     switch (qos) {
@@ -90,6 +131,12 @@ uint8_t publish_flags(uint8_t qos, bool retain) {
 bool publish_topic(buddy::mqtt::Client &mqtt_client, const char *topic, const char *payload, uint8_t qos, bool retain) {
     return mqtt_client.publish(topic, payload, publish_flags(qos, retain));
 }
+
+#if BUDDY_ENABLE_PRINTER_PROTOCOL_3_PERIODIC_TELEMETRY()
+bool publish_topic_raw(buddy::mqtt::Client &mqtt_client, const char *topic, const uint8_t *payload, size_t payload_len, uint8_t qos, bool retain) {
+    return mqtt_client.publish_raw(topic, payload, payload_len, publish_flags(qos, retain));
+}
+#endif
 
 void publish_printer_value(buddy::mqtt::Client &mqtt_client, const char *printer_id, const char *suffix, const char *payload, uint8_t qos, bool retain) {
     char topic[128];
@@ -141,6 +188,26 @@ Telemetry::Telemetry() {
 
 bool Telemetry::build_online_topic(char *buffer, size_t buffer_size) const {
     return make_printer_topic(buffer, buffer_size, printer_id_, "/online");
+}
+
+bool Telemetry::build_command_topic(char *buffer, size_t buffer_size) const {
+    return make_command_topic(buffer, buffer_size, printer_id_);
+}
+
+bool Telemetry::build_gcode_topic(char *buffer, size_t buffer_size) const {
+    return make_gcode_topic(buffer, buffer_size, printer_id_);
+}
+
+bool Telemetry::build_transfer_topic(char *buffer, size_t buffer_size) const {
+    return make_transfer_topic(buffer, buffer_size, printer_id_);
+}
+
+bool Telemetry::build_debug_command_topic(char *buffer, size_t buffer_size) const {
+    return make_debug_command_topic(buffer, buffer_size, printer_id_);
+}
+
+bool Telemetry::build_event_topic(char *buffer, size_t buffer_size) const {
+    return make_event_topic(buffer, buffer_size, printer_id_);
 }
 
 void Telemetry::set_identity(const char *identity) {
@@ -290,6 +357,68 @@ void Telemetry::publish_telemetry(const connect_client::Printer::Params &params,
             }
         }
     }
+
+#if BUDDY_ENABLE_PRINTER_PROTOCOL_3_PERIODIC_TELEMETRY()
+    {
+        char topic[128];
+        if (make_telemetry_topic(topic, sizeof(topic), printer_id_)) {
+            connect2_TelemetryEnvelope msg = connect2_TelemetryEnvelope_init_zero;
+            strlcpy(msg.state, state, sizeof(msg.state));
+
+            msg.has_axis_z = true;
+            msg.axis_z = params.pos[connect_client::Printer::Z_AXIS_POS];
+            msg.has_flow = true;
+            msg.flow = static_cast<uint32_t>(params.flow_factor);
+            msg.has_speed = true;
+            msg.speed = static_cast<uint32_t>(params.print_speed);
+
+            if (params.has_job) {
+                msg.has_job_id = true;
+                msg.job_id = params.job_id;
+                msg.has_progress = true;
+                msg.progress = params.progress_percent;
+                msg.has_time_printing = true;
+                msg.time_printing = params.print_duration;
+                if (params.time_to_end != marlin_server::TIME_TO_END_INVALID) {
+                    msg.has_time_remaining = true;
+                    msg.time_remaining = params.time_to_end;
+                }
+            }
+
+            if (full || force_full) {
+                msg.has_axis_x = true;
+                msg.axis_x = params.pos[connect_client::Printer::X_AXIS_POS];
+                msg.has_axis_y = true;
+                msg.axis_y = params.pos[connect_client::Printer::Y_AXIS_POS];
+                msg.has_temp_nozzle = true;
+                msg.temp_nozzle = head.temp_nozzle;
+                msg.has_target_nozzle = true;
+                msg.target_nozzle = params.target_nozzle;
+                msg.has_temp_bed = true;
+                msg.temp_bed = params.temp_bed;
+                msg.has_target_bed = true;
+                msg.target_bed = params.target_bed;
+                if (params.slots[params.preferred_slot()].material.data()[0] != '\0') {
+                    msg.has_material = true;
+                    strlcpy(msg.material, params.slots[params.preferred_slot()].material.data(), sizeof(msg.material));
+                }
+            }
+
+            if (params.state.dialog.has_value()) {
+                msg.has_dialog_id = true;
+                msg.dialog_id = params.state.dialog->dialog_id.to_uint32_t();
+            }
+
+            uint8_t payload[512] = {};
+            pb_ostream_t stream = pb_ostream_from_buffer(payload, sizeof(payload));
+            if (pb_encode(&stream, connect2_TelemetryEnvelope_fields, &msg)) {
+                log_info(connect2, "tx mqtt topic=telemetry bytes=%u full=%d",
+                    static_cast<unsigned>(stream.bytes_written), static_cast<int>(full || force_full));
+                (void)publish_topic_raw(mqtt_client, topic, payload, stream.bytes_written, 1, false);
+            }
+        }
+    }
+#endif
 
     last_.valid = true;
 }

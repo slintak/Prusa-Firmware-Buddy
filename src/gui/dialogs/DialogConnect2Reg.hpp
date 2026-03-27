@@ -22,6 +22,10 @@ private:
 
     bool event_in_progress_ = false;
     bool qr_visible_ = false;
+    bool registration_started_ = false;
+    bool code_received_ = false;
+    bool registration_done_ = false;
+    bool terminal_button_mode_ = false;
     connect2_client::OnlineStatus last_status_ { connect2_client::ConnectionStatus::Unknown, connect2_client::OnlineError::NoError };
 
     window_header_t header_;

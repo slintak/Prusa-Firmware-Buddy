@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <strings.h>
 #include <sys/stat.h>
@@ -20,21 +21,27 @@ LOG_COMPONENT_REF(connect2);
 namespace connect2_client {
 
 namespace {
-constexpr const char *INI_SECTION = "service::connect";
-constexpr const char *OAUTH_CFG_PATH = "/internal/connect/oauth.cfg";
+constexpr const char *INI_SECTION = "service::connect2";
+constexpr const char *CONNECT2_CFG_PATH = "/internal/connect2/config.cfg";
 
 struct IniConfig {
-    char host[config_store_ns::connect_host_size + 1] = "";
-    uint16_t port = 0;
-    bool tls = true;
-    bool custom_cert = false;
-    bool loaded = false;
+    bool mqtt_loaded = false;
+    bool oauth_loaded = false;
+
+    char mqtt_host[max_host_buf_len] = "";
+    uint16_t mqtt_port = 0;
+    bool mqtt_tls = true;
+    bool mqtt_custom_cert = false;
+
+    char oauth_host[max_host_buf_len] = "";
+    uint16_t oauth_port = 0;
+    bool oauth_tls = true;
+    bool oauth_custom_cert = false;
+
     char oauth_device_auth_url[128] = "";
     char oauth_token_url[128] = "";
-    char oauth_url[96] = "";
     char oauth_device_auth_path[64] = "/oauth/device_authorization";
     char oauth_token_path[64] = "/oauth/token";
-    bool oauth_loaded = false;
 };
 
 bool ini_string_match(const char *section, const char *section_var,
@@ -42,121 +49,129 @@ bool ini_string_match(const char *section, const char *section_var,
     return strcmp(section_var, section) == 0 && strcmp(name_var, name) == 0;
 }
 
-bool compose_url(const char *base_url, const char *path, char *out, size_t out_size) {
-    if (base_url == nullptr || path == nullptr || base_url[0] == '\0' || path[0] == '\0' || out_size == 0) {
+bool parse_bool_value(const char *value, bool &out) {
+    if (value == nullptr) {
+        return false;
+    }
+    if (strcmp(value, "1") == 0 || strcasecmp(value, "true") == 0) {
+        out = true;
+        return true;
+    }
+    if (strcmp(value, "0") == 0 || strcasecmp(value, "false") == 0) {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+bool parse_u16_value(const char *value, uint16_t &out) {
+    if (value == nullptr) {
+        return false;
+    }
+    char *endptr = nullptr;
+    const long tmp = strtol(value, &endptr, 10);
+    if (endptr == nullptr || *endptr != '\0' || tmp < 0 || tmp > 65535) {
+        return false;
+    }
+    out = static_cast<uint16_t>(tmp);
+    return true;
+}
+
+bool has_url_scheme(const char *value) {
+    return value != nullptr
+        && (strncasecmp(value, "https://", 8) == 0 || strncasecmp(value, "http://", 7) == 0);
+}
+
+bool parse_host_port(const char *value, uint16_t default_port, char *host_out, size_t host_out_size, uint16_t &port_out) {
+    if (value == nullptr || host_out == nullptr || host_out_size == 0) {
         return false;
     }
 
-    const size_t base_len = strlen(base_url);
-    const bool base_has_slash = base_len > 0 && base_url[base_len - 1] == '/';
-    const bool path_has_slash = path[0] == '/';
-    const char *path_part = path;
-    if (base_has_slash && path_has_slash) {
-        path_part = path + 1;
+    const char *start = value;
+    const char *scheme = strstr(value, "://");
+    if (scheme != nullptr) {
+        start = scheme + 3;
     }
-    const char *sep = (!base_has_slash && !path_has_slash) ? "/" : "";
-    return snprintf(out, out_size, "%s%s%s", base_url, sep, path_part) > 0;
+
+    const char *end = start;
+    while (*end != '\0' && *end != '/') {
+        ++end;
+    }
+
+    if (end <= start) {
+        return false;
+    }
+
+    const char *colon = nullptr;
+    for (const char *p = start; p < end; ++p) {
+        if (*p == ':') {
+            colon = p;
+        }
+    }
+
+    const char *host_end = end;
+    uint16_t parsed_port = default_port;
+    if (colon != nullptr) {
+        host_end = colon;
+        char port_buf[8] = {};
+        const size_t port_len = static_cast<size_t>(end - colon - 1);
+        if (port_len == 0 || port_len >= sizeof(port_buf)) {
+            return false;
+        }
+        memcpy(port_buf, colon + 1, port_len);
+        uint16_t tmp = 0;
+        if (!parse_u16_value(port_buf, tmp) || tmp == 0) {
+            return false;
+        }
+        parsed_port = tmp;
+    }
+
+    const size_t host_len = static_cast<size_t>(host_end - start);
+    if (host_len == 0 || host_len >= host_out_size) {
+        return false;
+    }
+
+    memcpy(host_out, start, host_len);
+    host_out[host_len] = '\0';
+    port_out = parsed_port;
+    return true;
+}
+
+bool compose_url_from_host_path(const char *host, uint16_t port, bool tls, const char *path, char *out, size_t out_size) {
+    if (host == nullptr || host[0] == '\0' || path == nullptr || path[0] == '\0' || out_size == 0) {
+        return false;
+    }
+
+    const char *path_part = path;
+    char path_buf[96] = {};
+    if (path[0] != '/') {
+        const int n = snprintf(path_buf, sizeof(path_buf), "/%s", path);
+        if (n <= 0 || static_cast<size_t>(n) >= sizeof(path_buf)) {
+            return false;
+        }
+        path_part = path_buf;
+    }
+
+    const int n = snprintf(out, out_size, "%s://%s:%u%s", tls ? "https" : "http", host, static_cast<unsigned>(port), path_part);
+    return n > 0 && static_cast<size_t>(n) < out_size;
 }
 
 void fill_missing_oauth_urls(IniConfig &cfg) {
+    if (cfg.oauth_host[0] == '\0' && cfg.mqtt_host[0] != '\0') {
+        strlcpy(cfg.oauth_host, cfg.mqtt_host, sizeof(cfg.oauth_host));
+    }
+    if (cfg.oauth_port == 0) {
+        cfg.oauth_port = cfg.mqtt_port != 0 ? cfg.mqtt_port : 443;
+    }
+
     if (cfg.oauth_device_auth_url[0] == '\0') {
-        (void)compose_url(cfg.oauth_url, cfg.oauth_device_auth_path, cfg.oauth_device_auth_url, sizeof(cfg.oauth_device_auth_url));
+        (void)compose_url_from_host_path(cfg.oauth_host, cfg.oauth_port, cfg.oauth_tls,
+            cfg.oauth_device_auth_path, cfg.oauth_device_auth_url, sizeof(cfg.oauth_device_auth_url));
     }
     if (cfg.oauth_token_url[0] == '\0') {
-        (void)compose_url(cfg.oauth_url, cfg.oauth_token_path, cfg.oauth_token_url, sizeof(cfg.oauth_token_url));
+        (void)compose_url_from_host_path(cfg.oauth_host, cfg.oauth_port, cfg.oauth_tls,
+            cfg.oauth_token_path, cfg.oauth_token_url, sizeof(cfg.oauth_token_url));
     }
-}
-
-void fill_missing_oauth_urls(Config &cfg, const char *legacy_base_url, const char *legacy_auth_path, const char *legacy_token_path) {
-    if (cfg.oauth_device_auth_url[0] == '\0') {
-        (void)compose_url(legacy_base_url, legacy_auth_path, cfg.oauth_device_auth_url, sizeof(cfg.oauth_device_auth_url));
-    }
-    if (cfg.oauth_token_url[0] == '\0') {
-        (void)compose_url(legacy_base_url, legacy_token_path, cfg.oauth_token_url, sizeof(cfg.oauth_token_url));
-    }
-}
-
-int connect_ini_handler(void *user, const char *section, const char *name,
-    const char *value) {
-    if (user == nullptr || section == nullptr || name == nullptr || value == nullptr) {
-        return 0;
-    }
-
-    auto *config = reinterpret_cast<IniConfig *>(user);
-    if (ini_string_match(section, INI_SECTION, name, "hostname")) {
-        char buffer[sizeof config->host];
-        if (compress_host(value, buffer, sizeof buffer)) {
-            strlcpy(config->host, buffer, sizeof config->host);
-            config->loaded = true;
-        } else {
-            return 0;
-        }
-    } else if (ini_string_match(section, INI_SECTION, name, "port")) {
-        char *endptr;
-        long tmp = strtol(value, &endptr, 10);
-        if (*endptr == '\0' && tmp >= 0 && tmp <= 65535) {
-            config->port = static_cast<uint16_t>(tmp);
-            config->loaded = true;
-        } else {
-            return 0;
-        }
-    } else if (ini_string_match(section, INI_SECTION, name, "tls")) {
-        if (strcmp(value, "1") == 0 || strcasecmp(value, "true") == 0) {
-            config->tls = true;
-            config->loaded = true;
-        } else if (strcmp(value, "0") == 0 || strcasecmp(value, "false") == 0) {
-            config->tls = false;
-            config->loaded = true;
-        } else {
-            return 0;
-        }
-    } else if (ini_string_match(section, INI_SECTION, name, "custom_cert")) {
-        if (strcmp(value, "1") == 0 || strcasecmp(value, "true") == 0) {
-            config->custom_cert = true;
-        } else if (strcmp(value, "0") == 0 || strcasecmp(value, "false") == 0) {
-            config->custom_cert = false;
-        } else {
-            return 0;
-        }
-    } else if (ini_string_match(section, INI_SECTION, name, "oauth_device_auth_url")) {
-        strlcpy(config->oauth_device_auth_url, value, sizeof(config->oauth_device_auth_url));
-        config->oauth_loaded = true;
-    } else if (ini_string_match(section, INI_SECTION, name, "oauth_token_url")) {
-        strlcpy(config->oauth_token_url, value, sizeof(config->oauth_token_url));
-        config->oauth_loaded = true;
-    } else if (ini_string_match(section, INI_SECTION, name, "oauth_url")) {
-        strlcpy(config->oauth_url, value, sizeof(config->oauth_url));
-        config->oauth_loaded = true;
-    } else if (ini_string_match(section, INI_SECTION, name, "oauth_device_auth_path")) {
-        strlcpy(config->oauth_device_auth_path, value, sizeof(config->oauth_device_auth_path));
-        config->oauth_loaded = true;
-    } else if (ini_string_match(section, INI_SECTION, name, "oauth_token_path")) {
-        strlcpy(config->oauth_token_path, value, sizeof(config->oauth_token_path));
-        config->oauth_loaded = true;
-    }
-    return 1;
-}
-
-bool copy_file(const char *src, const char *dst) {
-    unique_file_ptr s(fopen(src, "rb"));
-    if (!s) {
-        return false;
-    }
-    unique_file_ptr d(fopen(dst, "wb"));
-    if (!d) {
-        return false;
-    }
-
-    while (!feof(s.get()) && !ferror(s.get()) && !ferror(d.get())) {
-        constexpr size_t block = 128;
-        uint8_t buffer[block];
-        size_t read = fread(buffer, 1, block, s.get());
-        if (read > 0 && fwrite(buffer, 1, read, d.get()) != read) {
-            return false;
-        }
-    }
-
-    return !ferror(s.get()) && !ferror(d.get());
 }
 
 void bytes_to_hex(const uint8_t *data, size_t size, char *out, size_t out_len) {
@@ -206,31 +221,69 @@ void log_file_sha256(const char *label, const char *path) {
     log_info(connect2, "%s %s sha256=%s size=%u", label, path, hex, static_cast<unsigned>(total));
 }
 
-bool save_oauth_cfg(const IniConfig &cfg) {
-    mkdir("/internal/connect", 0777);
-    unique_file_ptr f(fopen(OAUTH_CFG_PATH, "wb"));
+bool copy_file(const char *src, const char *dst) {
+    unique_file_ptr s(fopen(src, "rb"));
+    if (!s) {
+        return false;
+    }
+    unique_file_ptr d(fopen(dst, "wb"));
+    if (!d) {
+        return false;
+    }
+
+    while (!feof(s.get()) && !ferror(s.get()) && !ferror(d.get())) {
+        constexpr size_t block = 128;
+        uint8_t buffer[block];
+        const size_t read = fread(buffer, 1, block, s.get());
+        if (read > 0 && fwrite(buffer, 1, read, d.get()) != read) {
+            return false;
+        }
+    }
+
+    return !ferror(s.get()) && !ferror(d.get());
+}
+
+bool save_connect2_cfg(const Config &cfg) {
+    mkdir("/internal/connect2", 0777);
+    unique_file_ptr f(fopen(CONNECT2_CFG_PATH, "wb"));
     if (!f) {
-        log_info(connect2, "oauth cfg open for write failed path=%s errno=%d", OAUTH_CFG_PATH, errno);
+        log_info(connect2, "connect2 cfg open for write failed path=%s errno=%d", CONNECT2_CFG_PATH, errno);
         return false;
     }
+
     const int written = fprintf(f.get(),
-        "oauth_device_auth_url=%s\noauth_token_url=%s\n",
-        cfg.oauth_device_auth_url, cfg.oauth_token_url);
+        "mqtt_host=%s\n"
+        "mqtt_port=%u\n"
+        "mqtt_tls=%d\n"
+        "mqtt_custom_cert=%d\n"
+        "oauth_tls=%d\n"
+        "oauth_custom_cert=%d\n"
+        "oauth_device_auth_url=%s\n"
+        "oauth_token_url=%s\n",
+        cfg.host,
+        static_cast<unsigned>(cfg.port),
+        cfg.tls ? 1 : 0,
+        cfg.custom_cert ? 1 : 0,
+        cfg.oauth_tls ? 1 : 0,
+        cfg.oauth_custom_cert ? 1 : 0,
+        cfg.oauth_device_auth_url,
+        cfg.oauth_token_url);
+
     if (written <= 0 || ferror(f.get())) {
-        log_info(connect2, "oauth cfg write failed path=%s errno=%d", OAUTH_CFG_PATH, errno);
+        log_info(connect2, "connect2 cfg write failed path=%s errno=%d", CONNECT2_CFG_PATH, errno);
         return false;
     }
+
     return true;
 }
 
-void load_oauth_cfg(Config &cfg) {
-    unique_file_ptr f(fopen(OAUTH_CFG_PATH, "rb"));
+bool load_connect2_cfg(Config &cfg) {
+    unique_file_ptr f(fopen(CONNECT2_CFG_PATH, "rb"));
     if (!f) {
-        return;
+        return false;
     }
-    char legacy_base_url[96] = {};
-    char legacy_auth_path[64] = {};
-    char legacy_token_path[64] = {};
+
+    bool loaded = false;
     char line[256] = {};
     while (fgets(line, sizeof(line), f.get()) != nullptr) {
         char *eq = strchr(line, '=');
@@ -243,64 +296,172 @@ void load_oauth_cfg(Config &cfg) {
         if (nl) {
             *nl = '\0';
         }
-        if (strcmp(line, "oauth_device_auth_url") == 0) {
+
+        if (strcmp(line, "mqtt_host") == 0) {
+            strlcpy(cfg.host, value, sizeof(cfg.host));
+            loaded = true;
+        } else if (strcmp(line, "mqtt_port") == 0) {
+            uint16_t port = 0;
+            if (parse_u16_value(value, port)) {
+                cfg.port = port;
+                loaded = true;
+            }
+        } else if (strcmp(line, "mqtt_tls") == 0) {
+            bool v = true;
+            if (parse_bool_value(value, v)) {
+                cfg.tls = v;
+                loaded = true;
+            }
+        } else if (strcmp(line, "mqtt_custom_cert") == 0) {
+            bool v = false;
+            if (parse_bool_value(value, v)) {
+                cfg.custom_cert = v;
+                loaded = true;
+            }
+        } else if (strcmp(line, "oauth_tls") == 0) {
+            bool v = true;
+            if (parse_bool_value(value, v)) {
+                cfg.oauth_tls = v;
+                loaded = true;
+            }
+        } else if (strcmp(line, "oauth_custom_cert") == 0) {
+            bool v = false;
+            if (parse_bool_value(value, v)) {
+                cfg.oauth_custom_cert = v;
+                loaded = true;
+            }
+        } else if (strcmp(line, "oauth_device_auth_url") == 0) {
             strlcpy(cfg.oauth_device_auth_url, value, sizeof(cfg.oauth_device_auth_url));
+            loaded = true;
         } else if (strcmp(line, "oauth_token_url") == 0) {
             strlcpy(cfg.oauth_token_url, value, sizeof(cfg.oauth_token_url));
-        } else if (strcmp(line, "oauth_url") == 0) {
-            strlcpy(legacy_base_url, value, sizeof(legacy_base_url));
-        } else if (strcmp(line, "oauth_device_auth_path") == 0) {
-            strlcpy(legacy_auth_path, value, sizeof(legacy_auth_path));
-        } else if (strcmp(line, "oauth_token_path") == 0) {
-            strlcpy(legacy_token_path, value, sizeof(legacy_token_path));
+            loaded = true;
         }
     }
-    fill_missing_oauth_urls(cfg, legacy_base_url, legacy_auth_path, legacy_token_path);
+
+    return loaded;
 }
+
+int connect_ini_handler(void *user, const char *section, const char *name, const char *value) {
+    if (user == nullptr || section == nullptr || name == nullptr || value == nullptr) {
+        return 0;
+    }
+
+    auto *config = reinterpret_cast<IniConfig *>(user);
+
+    if (ini_string_match(section, INI_SECTION, name, "mqtt_host")) {
+        if (!parse_host_port(value, 8883, config->mqtt_host, sizeof(config->mqtt_host), config->mqtt_port)) {
+            return 0;
+        }
+        config->mqtt_loaded = true;
+        return 1;
+    }
+    if (ini_string_match(section, INI_SECTION, name, "mqtt_tls")) {
+        if (!parse_bool_value(value, config->mqtt_tls)) {
+            return 0;
+        }
+        config->mqtt_loaded = true;
+        return 1;
+    }
+    if (ini_string_match(section, INI_SECTION, name, "mqtt_custom_cert")) {
+        if (!parse_bool_value(value, config->mqtt_custom_cert)) {
+            return 0;
+        }
+        config->mqtt_loaded = true;
+        return 1;
+    }
+
+    if (ini_string_match(section, INI_SECTION, name, "oauth_host")) {
+        if (!parse_host_port(value, 443, config->oauth_host, sizeof(config->oauth_host), config->oauth_port)) {
+            return 0;
+        }
+        config->oauth_loaded = true;
+        return 1;
+    }
+    if (ini_string_match(section, INI_SECTION, name, "oauth_tls")) {
+        if (!parse_bool_value(value, config->oauth_tls)) {
+            return 0;
+        }
+        config->oauth_loaded = true;
+        return 1;
+    }
+    if (ini_string_match(section, INI_SECTION, name, "oauth_custom_cert")) {
+        if (!parse_bool_value(value, config->oauth_custom_cert)) {
+            return 0;
+        }
+        config->oauth_loaded = true;
+        return 1;
+    }
+    if (ini_string_match(section, INI_SECTION, name, "oauth_auth_url")) {
+        if (has_url_scheme(value)) {
+            strlcpy(config->oauth_device_auth_url, value, sizeof(config->oauth_device_auth_url));
+        } else {
+            strlcpy(config->oauth_device_auth_path, value, sizeof(config->oauth_device_auth_path));
+        }
+        config->oauth_loaded = true;
+        return 1;
+    }
+    if (ini_string_match(section, INI_SECTION, name, "oauth_token_url")) {
+        if (has_url_scheme(value)) {
+            strlcpy(config->oauth_token_url, value, sizeof(config->oauth_token_url));
+        } else {
+            strlcpy(config->oauth_token_path, value, sizeof(config->oauth_token_path));
+        }
+        config->oauth_loaded = true;
+        return 1;
+    }
+
+    return 1;
+}
+
 } // namespace
 
 Config load_config() {
     Config cfg = {};
     cfg.enabled = config_store().connect_enabled.get();
-    strlcpy(cfg.host, config_store().connect_host.get().data(), sizeof(cfg.host));
-    decompress_host(cfg.host, sizeof(cfg.host));
-    cfg.tls = config_store().connect_tls.get();
-    cfg.port = config_store().connect_port.get();
-    cfg.custom_cert = config_store().connect_custom_tls_cert.get();
-    load_oauth_cfg(cfg);
+
+    (void)load_connect2_cfg(cfg);
     return cfg;
 }
 
 bool load_cfg_from_ini() {
-    IniConfig config;
-    bool ok = ini_parse("/usb/prusa_printer_settings.ini", connect_ini_handler, &config) == 0;
-    ok = ok && (config.loaded || config.oauth_loaded);
-    fill_missing_oauth_urls(config);
+    IniConfig ini_cfg;
+    bool ok = ini_parse("/usb/prusa_printer_settings.ini", connect_ini_handler, &ini_cfg) == 0;
+    ok = ok && (ini_cfg.mqtt_loaded || ini_cfg.oauth_loaded);
+    if (!ok) {
+        return false;
+    }
 
-    if (ok && config.loaded && config.custom_cert) {
+    fill_missing_oauth_urls(ini_cfg);
+
+    Config cfg = load_config();
+    if (ini_cfg.mqtt_loaded) {
+        if (ini_cfg.mqtt_host[0] != '\0') {
+            strlcpy(cfg.host, ini_cfg.mqtt_host, sizeof(cfg.host));
+        }
+        cfg.port = ini_cfg.mqtt_port;
+        cfg.tls = ini_cfg.mqtt_tls;
+        cfg.custom_cert = ini_cfg.mqtt_custom_cert;
+    }
+
+    if (ini_cfg.oauth_loaded) {
+        cfg.oauth_tls = ini_cfg.oauth_tls;
+        cfg.oauth_custom_cert = ini_cfg.oauth_custom_cert;
+        strlcpy(cfg.oauth_device_auth_url, ini_cfg.oauth_device_auth_url, sizeof(cfg.oauth_device_auth_url));
+        strlcpy(cfg.oauth_token_url, ini_cfg.oauth_token_url, sizeof(cfg.oauth_token_url));
+    }
+
+    if (cfg.custom_cert) {
         mkdir("/internal/connect", 0777);
         if (!copy_file("/usb/connect.der", "/internal/connect/connect.der")) {
             log_info(connect2, "copy /usb/connect.der -> /internal/connect/connect.der failed (errno=%d)", errno);
-            ok = false;
+            return false;
         }
         log_file_sha256("usb_cert", "/usb/connect.der");
         log_file_sha256("internal_cert", "/internal/connect/connect.der");
     }
 
-    if (ok && config.oauth_loaded) {
-        ok = save_oauth_cfg(config);
-    }
-
-    if (ok && config.loaded) {
-        auto &store = config_store();
-        auto transaction = store.get_backend().transaction_guard();
-        store.connect_host.set(config.host);
-        store.connect_port.set(config.port);
-        store.connect_tls.set(config.tls);
-        store.connect_custom_tls_cert.set(config.custom_cert);
-        // Note: enabled is controlled in the GUI
-    }
-    return ok;
+    return save_connect2_cfg(cfg);
 }
 
 } // namespace connect2_client

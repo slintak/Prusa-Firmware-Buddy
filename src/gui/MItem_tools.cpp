@@ -836,12 +836,10 @@ void MI_LOAD_SETTINGS::click(IWindowMenu & /*window_menu*/) {
     }
     build_message(msg_builder, _("Network"), network_settings_loaded);
 
-#if BUDDY_ENABLE_CONNECT()
-    build_message(msg_builder, _("Connect"), connect_client::MarlinPrinter::load_cfg_from_ini());
-#endif
-
 #if BUDDY_ENABLE_CONNECT2()
     build_message(msg_builder, _("Connect"), connect2_client::load_cfg_from_ini());
+#elif BUDDY_ENABLE_CONNECT()
+    build_message(msg_builder, _("Connect"), connect_client::MarlinPrinter::load_cfg_from_ini());
 #endif
 
     MsgBoxInfo(string_view_utf8::MakeRAM(msg.data()), Responses_Ok);

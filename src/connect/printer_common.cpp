@@ -3,8 +3,12 @@
 
 #include <config_store/store_instance.hpp>
 
+#include <common/printer_model.hpp>
+#include <logging/log.hpp>
 #include <support_utils.h>
 #include <version/version.hpp>
+
+LOG_COMPONENT_REF(connect2);
 
 namespace connect_client {
 
@@ -32,6 +36,14 @@ void init_info(Printer::PrinterInfo &info) {
     }
     printerHash(info.fingerprint, sizeof(info.fingerprint) - 1, false);
     info.fingerprint[sizeof(info.fingerprint) - 1] = '\0';
+    log_info(
+        connect2,
+        "connect fingerprint=%s sn=%s printer=%s fw=%s",
+        info.fingerprint,
+        info.serial_number.begin(),
+        PrinterModelInfo::current().id_str,
+        version::project_version_full
+    );
 }
 
 } // namespace connect_client

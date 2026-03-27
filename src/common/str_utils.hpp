@@ -47,6 +47,14 @@ struct ConstexprString {
         return r;
     }
 
+    /// Runtime variant of the unsafe constructor for pointers whose lifetime
+    /// is controlled externally by the caller.
+    static constexpr ConstexprString from_str_runtime_unsafe(const char *str) {
+        ConstexprString r;
+        r.str_ = str;
+        return r;
+    }
+
     constexpr operator const char *() const {
         return str_;
     }

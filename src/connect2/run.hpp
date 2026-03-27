@@ -43,6 +43,7 @@ void run();
 OnlineStatus last_status();
 RegistrationInfo registration_info();
 void request_registration();
+void cancel_registration();
 bool has_stored_auth();
 
 } // namespace connect2_client
